@@ -1,0 +1,27 @@
+# Stress scenarios (SPEC §4.4). Relative shocks are fractions (0.10 = +10%);
+# curve shocks are in basis points.
+
+historical:
+  covid_2020:
+    description: Worst day in the March 2020 crash window
+    window: [2020-03-09, 2020-03-20]
+    select: worst_firm_pnl_day
+  rates_2022:
+    description: Largest 1-day Treasury curve move in 2022
+    window: [2022-01-01, 2022-12-31]
+    select: largest_curve_move_day
+
+hypothetical:
+  rates_up_200bp:
+    description: Parallel +200bp shift of the Treasury curve
+    shocks:
+      curve_parallel_bp: 200
+  usdinr_up_10pct:
+    description: USD/INR up 10%
+    shocks:
+      INR=X: 0.10
+  equity_crash:
+    description: Equities down 20% with VIX up 50%
+    shocks:
+      equities: -0.20 # SPY, AAPL, MSFT, JPM
+      VIXCLS: 0.50

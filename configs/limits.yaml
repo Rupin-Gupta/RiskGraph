@@ -1,0 +1,27 @@
+# Risk limits in USD (SPEC §4.6). Utilization = metric / limit.
+# Values are null until phase 01a calibrates them so breaches are rare but do occur in
+# the history. The calibration is documented in docs/METHODOLOGY.md.
+
+status_thresholds:
+  warning: 0.90 # ok < 0.90 <= warning
+  breach: 1.00 # warning < 1.00 <= breach
+
+var_99_1d:
+  firm: null
+  desks:
+    fx: null
+    rates: null
+    equity_derivatives: null
+
+stress_loss: # worst loss across configs/scenarios.yaml
+  firm: null
+
+pfe: # counterparty PFE limits, phase 06
+  CP01: null
+  CP02: null
+  CP03: null
+  CP04: null
+  CP05: null
+  CP06: null
+  CP07: null
+  CP08: null

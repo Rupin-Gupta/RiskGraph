@@ -1,0 +1,49 @@
+# Synthetic trading book (SPEC §3.1). Used by the generator in src/riskgraph/book/ (phase 01a).
+
+reporting_currency: USD
+target_trade_count: 50 # approximate; the per-instrument counts below sum to 46
+
+counterparties:
+  ids: [CP01, CP02, CP03, CP04, CP05, CP06, CP07, CP08] # fictional, names generated
+  netting_sets_per_counterparty: 1
+
+# Tenors are measured relative to the valuation date, so the book's composition is
+# stable across the backtest window (SPEC Appendix B).
+constant_maturity: true
+
+desks:
+  fx:
+    fx_forward:
+      count: 12
+      currency_pairs: [EURUSD, USDINR]
+      tenor_range: [1M, 2Y]
+      counterparty_risk: true # OTC
+    fx_spot:
+      count: 4
+      currency_pairs: [EURUSD, USDINR]
+      counterparty_risk: false
+
+  rates:
+    interest_rate_swap:
+      count: 6
+      currency: USD
+      structure: fixed_float
+      tenors: [2Y, 5Y, 10Y]
+      pay_receive: [payer, receiver] # side of the fixed leg
+      counterparty_risk: true # OTC
+    treasury_bond:
+      count: 3
+      tenors: [2Y, 5Y, 10Y]
+      counterparty_risk: false
+
+  equity_derivatives:
+    european_option:
+      count: 16
+      underlyings: [SPY, AAPL, MSFT, JPM]
+      option_types: [call, put]
+      tenor_range: [1M, 1Y]
+      counterparty_risk: false # treated as exchange-traded
+    cash_equity: # hedges
+      count: 5
+      underlyings: [SPY, AAPL, MSFT, JPM]
+      counterparty_risk: false

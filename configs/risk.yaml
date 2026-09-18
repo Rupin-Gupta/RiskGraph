@@ -1,0 +1,53 @@
+# Pricing and risk parameters (SPEC §4.1-§4.3, §4.5, §4.7). Used from phase 01a.
+
+# Volatility for Monte Carlo VaR and single-stock option pricing: "ewma" or a vol model
+# name once phase 05b selects one.
+vol_source: ewma
+ewma_lambda: 0.94 # EWMA decay for vols and the covariance matrix
+
+pricing:
+  option_vol:
+    SPY: vix # implied vol = VIXCLS / 100
+    single_stock: vol_source # AAPL, MSFT, JPM use the forecast vol from vol_source
+  curve:
+    points: [DGS2, DGS5, DGS10] # Treasury CMT yields, single-curve USD valuation
+    interpolation: linear
+    extrapolation: flat
+  dv01_bump_bp: 1 # parallel bump for IRS and bond DV01
+
+# How each factor's historical shocks are measured (SPEC §4.2). Shocks are applied to
+# today's market state and every trade is fully revalued per scenario.
+risk_factors:
+  equity: log_return
+  fx: log_return
+  rates: absolute_change_bp
+  vix: log_change
+
+var:
+  horizon_days: 1
+  confidence: 0.99
+  es_confidence: 0.975 # ES over the same scenarios as historical VaR
+  window_days: 500 # historical simulation lookback
+  levels: [desk, firm]
+
+parametric: # delta-normal, comparison only
+  covariance: ewma # uses ewma_lambda
+
+monte_carlo:
+  n_scenarios: 10000
+  correlation: cholesky # Cholesky of the covariance matrix
+  revaluation: full
+
+backtest:
+  window_days: 250
+  pnl: hypothetical # static positions, next-day market move vs the prior day's 99% VaR
+  tests: [kupiec_pof, christoffersen_independence]
+  traffic_light: # Basel zones by exception count
+    green: [0, 4]
+    yellow: [5, 9]
+    red_from: 10
+
+explain:
+  # Euler-style allocation: average position P&L over this many tail scenarios on each
+  # side of the VaR quantile.
+  tail_neighbors: 5

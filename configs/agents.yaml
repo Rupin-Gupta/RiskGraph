@@ -1,0 +1,24 @@
+# Agent system (SPEC §10.1). Used from phase 02.
+# Graph: intake -> supervisor -> (fan-out via Send) attribution | data_quality | policy
+#        -> writer -> critic -> [fail: back to the named specialist] -> human_approval
+#        (interrupt) -> dispatch | close
+
+llm:
+  provider: bedrock # langchain_aws.ChatBedrockConverse
+  model_id: null # set in phase 02; an environment variable may override it
+  temperature: 0
+
+budget_per_incident: # exceeding either stops the run with status needs_human
+  max_tokens: 60000
+  max_tool_calls: 25
+
+critic:
+  max_loops: 2 # critic-to-specialist retries before moving on
+
+nodes: # node -> agent pattern
+  supervisor: plan_and_execute
+  attribution: react # tree_of_thought from phase 05c
+  data_quality: react
+  policy: agentic_rag
+  writer: structured_generation
+  critic: reflection
