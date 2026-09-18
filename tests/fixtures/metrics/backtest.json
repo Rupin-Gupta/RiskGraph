@@ -1,0 +1,8 @@
+{
+  "firm": {
+    "exceptions": 3,
+    "kupiec_p_value": 0.71,
+    "traffic_light": "green"
+  },
+  "window_days": 250
+}
