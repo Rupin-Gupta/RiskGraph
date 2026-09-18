@@ -1,0 +1,71 @@
+[project]
+name = "riskgraph"
+version = "0.1.0"
+description = "Agentic traded-risk copilot for a fictional bank (portfolio project)."
+readme = "README.md"
+requires-python = "~=3.11.0"
+dependencies = [
+    "fredapi>=0.5.2",
+    "matplotlib>=3.11.2",
+    "numpy>=2.4.6",
+    "pandas>=3.0.6",
+    "pandera>=0.33.1",
+    "psycopg[binary]>=3.3.6",
+    "pyarrow>=25.0.1",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+    "pyyaml>=6.0.3",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.17.1",
+    "sqlalchemy>=2.0.54",
+    "typer>=0.27.2",
+    "yfinance>=1.7.0",
+]
+
+# ponytail: virtual project (no build backend, see ADR-002); src/ reaches Python via PYTHONPATH.
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "dvc>=3.67.1",
+    "mypy>=2.3.1",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "ruff>=0.16.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["*.md"] # keep ruff from reformatting code blocks in Markdown docs
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "scripts", "tests"]
+mypy_path = ["src", "scripts"]
+explicit_package_bases = true
+ignore_missing_imports = true
+
+# Strict for the math packages (ADR-001). `strict` is global-only, so its flags are listed.
+[[tool.mypy.overrides]]
+module = ["riskgraph.pricing.*", "riskgraph.risk.*", "riskgraph.exposure.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "scripts"]

@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: riskgraph
+      POSTGRES_DB: riskgraph
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U riskgraph -d riskgraph"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Bring-your-own vectors: no vectorizer modules. Anonymous access is safe only
+  # because both ports are bound to localhost.
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.38.16
+    command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
+    environment:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      DEFAULT_VECTORIZER_MODULE: none
+      ENABLE_MODULES: ""
+      API_BASED_MODULES_DISABLED: "true" # 1.3x enables text2vec-*/generative-* by default
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      CLUSTER_HOSTNAME: node1
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:50051:50051" # gRPC, required by weaviate-client v4
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
+  weaviate_data:
