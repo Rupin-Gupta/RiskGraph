@@ -120,3 +120,70 @@ Dependencies are approved per phase in SPEC §12; anything else needs explicit a
 - Inject all types into one panel for per-type precision: false alarms could not be attributed to a type.
 
 **Consequences.** A held factor contributes no VaR that day, so VaR is understated until the data is fixed. This is visible in run.json and `dq_findings` for the phase 02 data-quality agent. Stale Treasury prints and ×10 spikes on quiet days are largely invisible to the rules; RESULTS.md reports this rather than tuning thresholds on the evaluation window.
+
+## ADR-009: Phase 02 runtime: CPU-only torch and the Bedrock model
+
+**Status:** Accepted (phase 02)
+
+**Context.** `sentence-transformers` (approved for phase 02) depends on `torch`. On Linux, the default PyPI torch wheel pulls about 3 GB of CUDA packages into every CI run. The SPEC fixes Bedrock as the LLM provider but not the model. In `ap-south-1`, this account's on-demand quotas are set per model.
+
+**Decision.**
+- `torch` is declared directly and sourced from the PyTorch CPU index (`[tool.uv.sources]`, explicit index), so the lock file has no CUDA packages. torch is already a transitive dependency and is approved for phase 05.
+- The agents use `openai.gpt-oss-120b-1:0` in `ap-south-1` (`configs/agents.yaml`; `BEDROCK_MODEL_ID` overrides it). The owner chose it as the lowest-cost capable option: on-demand $0.18 input and $0.71 output per 1M tokens, from the AWS Price List API on 2026-09-19. The price is stored in the config and used for every cost figure.
+
+**Alternatives.** The default torch wheel (slow, large CI). A small proprietary Bedrock model (about 5× the cost). Amazon Nova Lite (cheaper, weaker tool use). A local model through Ollama or llama.cpp (free, but it breaks ADR-001 and needs a new dependency).
+
+**Consequences.** CI stays small. Results are specific to gpt-oss-120b. Cost figures move if AWS changes prices, so each metrics file records its model.
+
+## ADR-010: Incident set design
+
+**Status:** Accepted (phase 02)
+
+**Context.** SPEC §11.1 fixes four types of 25 cases and says what each one injects. It leaves open how to pick dates, how to size injections, what the agents are shown, and how bad data can cause a breach. Under ADR-008, a factor with a critical finding is held flat, which *lowers* VaR, and a stale print is a zero shock.
+
+**Decision.**
+- **Generate and validate.** A seeded search proposes cases and keeps one only if the full `run-daily` with its overrides reproduces the expected status (details in EVALUATION.md). Every case has its own date. Rejected candidates leave no files behind.
+- **Position jump:** one trade minted by the book generator on the incident date and numbered after the book's own IDs. It is scaled by bisection until its desk's HS VaR reaches a random 108–160% of the limit, then rounded to 0.5M.
+- **Market shock:** real breach days, untouched.
+- **Bad data:** a single run-date spike. It stays below the Pandera maximum move and inside the 200bp cross-source tolerance, is flagged only by the Isolation Forest (warning, factor stays live), and pushes a limit that was not in breach into breach. Stale prints are not used: a zero shock cannot raise VaR. Sign flips were tried and never qualified. Only EURUSD=X yields such cases, so all 25 are EURUSD spikes. This is documented as a limitation rather than retuning the frozen controls.
+- **Control:** 10 near misses and 15 quiet days, no injection.
+- **Leakage control.** Incident IDs are shuffled. Agents see only incident ID, date, and alerted limit. Tools resolve the hidden `run_id`. Labels live in a separate `ground_truth.json`.
+- **Label safety.** Non-bad-data cases with any data-quality finding on a top-3 contributing factor are rejected, because MDCP-5.1 would route them to Data Operations.
+- **Freezing.** The test checksum covers the IDs and their ground-truth bytes. It is pinned in the git-tracked `configs/agents.yaml` as well as in `split.json` (which DVC tracks), and verified before every evaluation.
+
+**Alternatives.**
+- Scaling historical factor returns to make market shocks: synthetic regimes with no historical counterpart.
+- Corruptions caught by the rules: the factor is held flat, so VaR falls and no breach occurs.
+- Corruptions no control flags: the ground truth could not be diagnosed from any tool.
+- Distractor findings planted on non-bad-data cases: a stronger test, deferred as extra scope.
+
+**Consequences.**
+- The bad-data class is narrow: one factor and one corruption kind.
+- Findings appear only in bad-data cases, so the set cannot measure resistance to unrelated findings.
+- Market-shock utilizations sit just above 100% (median 100.9%).
+- Regenerating incidents or changing the split after the first test run requires the owner's approval.
+
+## ADR-011: Agent runtime, critic, and evaluation choices
+
+**Status:** Accepted (phase 02)
+
+**Context.** SPEC §10–11 fix the graph, tools, critic checks, and metrics. They leave open: how tools identify the run, how evidence is re-fetched, which rule checks the critic applies, how budgets work across parallel branches, how approval tokens are issued, and where cost and latency come from.
+
+**Decision.**
+- **Tools** are bound to one incident, and the LLM never sees the `run_id`. `result_id` is a hash of `(run_id, tool, args)`, logged to a new `tool_results` table. Identical calls share one row, and every result can be re-fetched.
+- **Intake** fetches the alerted limit deterministically. The report's `incident_id`, `as_of_date`, and `breach` come from intake. The LLM generates the rest (`ReportDraft`). The baseline uses the same intake and assembly.
+- **Critic rules** are the policy's own evidence requirements (MRLP-5, MRLP-6.7, ARCHITECTURE.md). Each issue names the agent that must fix it. An evidence mismatch goes to the specialist whose call produced the `result_id`. After 2 correction loops the report goes to human approval with the open issues attached.
+- **Budget.** One thread-safe budget object per incident, shared by the parallel branches. Exceeding it stops the run with `needs_human`. So does a second structured-output failure, recorded as a `schema:` reason.
+- **Approval token:** HMAC-SHA256 of `thread_id:incident_id` keyed by `APPROVAL_SECRET`. It is issued by the approving command and verified by the dispatch tool.
+- **Evaluation** uses an in-memory checkpointer and auto-approves. Tokens come from each call's `usage_metadata`, cost from the price table, and latency from wall time up to the approval pause. Langfuse receives the same traces for inspection, but the metrics are computed in process rather than read back from Langfuse, because of ingestion delay.
+- **Retrieval** is the dense baseline only. It embeds chunk text without a contextual prefix and returns the top 5, with an optional `doc_id` filter. Hybrid search, re-ranking, and contextual chunks are phase 05a ablations.
+
+**Alternatives.**
+- Reading metrics back from the Langfuse API.
+- Separate budgets per specialist.
+- LLM-judged evidence checks.
+- Letting the critic change the report itself.
+
+**Consequences.**
+- The critic's rule checks use engine outputs directly, so the multi-agent variant gets deterministic corrections the baseline does not. That is the design being compared (SPEC §10.9), and it is stated next to every result.
+- Numeric faithfulness is scored by a separate checker that re-executes tools, so a critic bug cannot inflate it.
