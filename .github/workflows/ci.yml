@@ -3,6 +3,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch: # rebuild and redeploy the current main by hand
 
 permissions:
   contents: read
