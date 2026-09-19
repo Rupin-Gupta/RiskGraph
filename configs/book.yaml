@@ -1,6 +1,9 @@
 # Synthetic trading book (SPEC §3.1). Used by the generator in src/riskgraph/book/ (phase 01a).
 
 reporting_currency: USD
+# Trade date of every generated trade. Strikes, contract rates, and coupons are struck
+# against the market on this date (ADR-004).
+book_date: 2024-01-02
 target_trade_count: 50 # approximate; the per-instrument counts below sum to 46
 
 counterparties:
@@ -8,23 +11,28 @@ counterparties:
   netting_sets_per_counterparty: 1
 
 # Tenors are measured relative to the valuation date, so the book's composition is
-# stable across the backtest window (SPEC Appendix B).
+# stable across the backtest window (SPEC Appendix B). Strikes and FX contract rates keep
+# their moneyness and equity positions their USD notional (ADR-004).
+# notional_musd: [min, max] absolute notional in millions (FX: base currency; others: USD).
 constant_maturity: true
 
 desks:
   fx:
     fx_forward:
+      notional_musd: [5, 40]
       count: 12
       currency_pairs: [EURUSD, USDINR]
       tenor_range: [1M, 2Y]
       counterparty_risk: true # OTC
     fx_spot:
+      notional_musd: [5, 20]
       count: 4
       currency_pairs: [EURUSD, USDINR]
       counterparty_risk: false
 
   rates:
     interest_rate_swap:
+      notional_musd: [25, 150]
       count: 6
       currency: USD
       structure: fixed_float
@@ -32,18 +40,21 @@ desks:
       pay_receive: [payer, receiver] # side of the fixed leg
       counterparty_risk: true # OTC
     treasury_bond:
+      notional_musd: [10, 60]
       count: 3
       tenors: [2Y, 5Y, 10Y]
       counterparty_risk: false
 
   equity_derivatives:
     european_option:
+      notional_musd: [2, 15]
       count: 16
       underlyings: [SPY, AAPL, MSFT, JPM]
       option_types: [call, put]
       tenor_range: [1M, 1Y]
       counterparty_risk: false # treated as exchange-traded
     cash_equity: # hedges
+      notional_musd: [5, 25]
       count: 5
       underlyings: [SPY, AAPL, MSFT, JPM]
       counterparty_risk: false

@@ -15,6 +15,13 @@ pricing:
     extrapolation: flat
   dv01_bump_bp: 1 # parallel bump for IRS and bond DV01
 
+# Covered interest parity needs a rate for the non-USD leg of each FX forward. There is no
+# EUR or INR curve in the data, so a constant proxy is used (ADR-005). Decimal, semi-annual.
+fx_forward:
+  foreign_rate_proxy:
+    EUR: 0.02
+    INR: 0.065
+
 # How each factor's historical shocks are measured (SPEC §4.2). Shocks are applied to
 # today's market state and every trade is fully revalued per scenario.
 risk_factors:
