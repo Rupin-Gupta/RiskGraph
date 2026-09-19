@@ -1,5 +1,5 @@
-"""Postgres tables for daily risk results (SPEC §4.8), data-quality findings (SPEC §5), and
-the run writer.
+"""Postgres tables for daily risk results (SPEC §4.8), data-quality findings (SPEC §5), agent
+tool results (SPEC §10.2), and the run writer.
 
 Rows carry a run_id: the date for a base run, date+<hash> for a run with overrides, so
 incident runs never overwrite the base run for the same date (ADR-006).
@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from sqlalchemy import (
+    JSON,
     Column,
     Date,
     DateTime,
@@ -75,6 +76,19 @@ dq_findings = Table(
     Column("check", String, nullable=False),  # pandera:<rule> | staleness | cross_source | ...
     Column("severity", String, nullable=False),  # critical | warning
     Column("detail", String, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+# Agent tool calls (SPEC §10.2). result_id is a hash of (run_id, tool, args), so a repeated call
+# maps to the same row and evidence can always be re-fetched by its result_id.
+tool_results = Table(
+    "tool_results",
+    metadata,
+    Column("result_id", String, primary_key=True),
+    Column("run_id", String, nullable=False, index=True),
+    Column("tool", String, nullable=False),
+    Column("args", JSON, nullable=False),
+    Column("result", JSON, nullable=False),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )
 

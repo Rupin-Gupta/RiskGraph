@@ -5,8 +5,15 @@
 
 llm:
   provider: bedrock # langchain_aws.ChatBedrockConverse
-  model_id: null # set in phase 02; an environment variable may override it
+  model_id: openai.gpt-oss-120b-1:0 # BEDROCK_MODEL_ID in the environment overrides it
+  region: ap-south-1 # AWS_REGION in the environment overrides it
   temperature: 0
+  max_output_tokens: 4096 # per call, reasoning included
+
+# On-demand USD per 1M tokens, ap-south-1, from the AWS Price List API on 2026-09-19.
+# Used for cost estimates and the eval's cost per incident.
+prices_per_mtok:
+  openai.gpt-oss-120b-1:0: {input: 0.18, output: 0.71}
 
 budget_per_incident: # exceeding either stops the run with status needs_human
   max_tokens: 60000
@@ -22,3 +29,28 @@ nodes: # node -> agent pattern
   policy: agentic_rag
   writer: structured_generation
   critic: reflection
+
+# Per-agent tool allowlists (SPEC §10.2). The baseline gets every tool below.
+# send_escalation_email is called only by the dispatch node, never by an LLM.
+tools:
+  attribution:
+    - get_limit_status
+    - get_risk_results
+    - run_var_explain
+    - get_top_contributors
+    - list_new_trades
+    - get_trade
+    - get_greeks
+    - run_stress
+  data_quality:
+    - get_dq_findings
+    - compare_sources
+    - get_top_contributors
+    - get_limit_status
+  policy:
+    - search_policy
+
+eval:
+  # Frozen test split (SPEC §11.1): SHA-256 of the test IDs and their ground truth, as written
+  # to data/synthetic/incidents/split.json. Verified before every run.
+  test_split_sha256: 3ddf23869e2b85be3e1407976cef432f1fe7353a6d187fee63f4a1e057ee8b6f

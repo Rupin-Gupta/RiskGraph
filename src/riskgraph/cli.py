@@ -30,6 +30,10 @@ data_app = typer.Typer(no_args_is_help=True, help="Market data.")
 app.add_typer(data_app, name="data")
 book_app = typer.Typer(no_args_is_help=True, help="Synthetic trading book.")
 app.add_typer(book_app, name="book")
+incidents_app = typer.Typer(no_args_is_help=True, help="Injected incidents (SPEC §11).")
+app.add_typer(incidents_app, name="incidents")
+rag_app = typer.Typer(no_args_is_help=True, help="Policy retrieval (SPEC §9).")
+app.add_typer(rag_app, name="rag")
 
 START = "2015-01-01"
 RAW = Path("data/raw")
@@ -169,30 +173,25 @@ def book_generate(seed: int = typer.Option(42, help="Random seed.")) -> None:
     typer.echo(f"{len(trades)} trades {counts}, {len(cps)} counterparties -> {BOOK.parent}")
 
 
-@app.command("run-daily")
-def run_daily(
-    day: str = typer.Option(..., "--date", help="Valuation date, YYYY-MM-DD."),
-    book_override: Annotated[
-        Path | None, typer.Option(help="Book (parquet or json) replacing today's.")
-    ] = None,
-    market_override: Annotated[
-        Path | None,
-        typer.Option(
-            help="Parquet on the panel's date index; non-missing values replace the panel's."
-        ),
-    ] = None,
-    seed: int = typer.Option(42, help="Monte Carlo (with the date) and Isolation Forest seed."),
-    db: bool = typer.Option(
-        True, help="Write dq_findings, risk_results, and limit_status to Postgres."
-    ),
-) -> None:
-    """Daily risk run: data controls, then VaR/ES, sensitivities, stress, limits, VaR explain
-    (SPEC §4.8, §5). Risk factors with a critical finding on the date are held flat."""
-    load_dotenv()
-    cfgs = configs()
+def run_id_for(day: str, book_override: Path | None, market_override: Path | None) -> str:
+    """The date for a base run, date+<8 hex of the override files' SHA-256> otherwise."""
     overrides = [p for p in (book_override, market_override) if p is not None]
     digest = hashlib.sha256(b"".join(p.read_bytes() for p in overrides)).hexdigest()[:8]
-    run_id = f"{day}+{digest}" if overrides else day
+    return f"{day}+{digest}" if overrides else day
+
+
+def daily_run(
+    day: str,
+    book_override: Path | None = None,
+    market_override: Path | None = None,
+    seed: int = 42,
+    db: bool = True,
+) -> dict[str, Any]:
+    """Daily risk run: data controls, then VaR/ES, sensitivities, stress, limits, VaR explain
+    (SPEC §4.8, §5). Writes data/runs/<run_id>/run.json (and Postgres if db); returns it."""
+    load_dotenv()
+    cfgs = configs()
+    run_id = run_id_for(day, book_override, market_override)
     engine = get_engine() if db else None
 
     # Controls first, and their findings are stored before the engine runs: a run that fails
@@ -215,8 +214,8 @@ def run_daily(
     config |= {"risk": cfgs.risk, "limits": cfgs.limits, "scenarios": cfgs.scenarios}
     records = findings.assign(date=findings["date"].dt.strftime("%Y-%m-%d")).to_dict("records")
     controls = {"findings": records, "excluded_factors": excluded}
-    out = RUNS / run_id / "run.json"
-    write_json(out, {"run_id": run_id, "config": config, "controls": controls} | result)
+    doc = {"run_id": run_id, "config": config, "controls": controls} | result
+    write_json(RUNS / run_id / "run.json", doc)
     if engine is not None:
         rows = [
             {"desk": s, "metric": m, "value": v}
@@ -224,12 +223,37 @@ def run_daily(
             for m, v in metrics.items()
         ]
         write_run(engine, run_id, date.fromisoformat(day), rows, result["limits"])
+    return doc
 
+
+@app.command("run-daily")
+def run_daily(
+    day: str = typer.Option(..., "--date", help="Valuation date, YYYY-MM-DD."),
+    book_override: Annotated[
+        Path | None, typer.Option(help="Book (parquet or json) replacing today's.")
+    ] = None,
+    market_override: Annotated[
+        Path | None,
+        typer.Option(
+            help="Parquet on the panel's date index; non-missing values replace the panel's."
+        ),
+    ] = None,
+    seed: int = typer.Option(42, help="Monte Carlo (with the date) and Isolation Forest seed."),
+    db: bool = typer.Option(
+        True, help="Write dq_findings, risk_results, and limit_status to Postgres."
+    ),
+) -> None:
+    """Daily risk run: data controls, then VaR/ES, sensitivities, stress, limits, VaR explain
+    (SPEC §4.8, §5). Risk factors with a critical finding on the date are held flat."""
+    result = daily_run(day, book_override, market_override, seed, db)
+    run_id, controls = result["run_id"], result["controls"]
+    out = RUNS / run_id / "run.json"
     dropped = result["market"]["dropped_dates"]
     typer.echo(f"run {run_id}: {len(dropped)} dates dropped from the VaR window (gap policy)")
     for r in controls["findings"]:
         typer.echo(f"  finding {r['factor']} {r['check']} ({r['severity']}): {r['detail']}")
-    typer.echo(f"  held flat (critical findings): {', '.join(excluded) or 'none'}")
+    excluded = ", ".join(controls["excluded_factors"]) or "none"
+    typer.echo(f"  held flat (critical findings): {excluded}")
     for s, m in result["metrics"].items():
         typer.echo(
             f"  {s:<19} VaR99 HS {m['var_99_1d_hs']:>12,.0f}  MC {m['var_99_1d_mc']:>12,.0f}"
@@ -238,6 +262,129 @@ def run_daily(
     for r in result["limits"]:
         typer.echo(f"  limit {r['scope']}/{r['metric']}: {r['utilization']:.0%} {r['status']}")
     typer.echo(f"-> {out}" + (" and Postgres" if db else ""))
+
+
+@incidents_app.command("generate")
+def incidents_generate(
+    n: int = typer.Option(100, help="Number of incidents (a multiple of 4)."),
+    seed: int = typer.Option(42, help="Random seed."),
+) -> None:
+    """Generate and validate labeled incidents plus a stratified dev/test split."""
+    from riskgraph.incidents.generate import OUT, generate  # imports this module
+
+    doc = generate(n, seed)
+    typer.echo(f"{n} incidents -> {OUT}; dev {len(doc['dev'])}, test {len(doc['test'])}")
+    typer.echo(f"test_sha256 {doc['test_sha256']} (pin it in configs/agents.yaml)")
+
+
+@rag_app.command("index")
+def rag_index(
+    seed: int = typer.Option(42, help="Recorded for lineage; indexing is not random."),
+) -> None:
+    """Chunk the corpus, embed it, and (re)load the Weaviate collection; write the manifest of
+    section IDs to corpus/sections.json."""
+    from riskgraph.rag.chunking import SECTIONS, corpus_chunks
+    from riskgraph.rag.store import COLLECTION, MODEL, build_index, connect
+
+    chunks = corpus_chunks()
+    with connect() as client:
+        n = build_index(client, chunks)
+    sections: dict[str, list[str]] = {}
+    for c in chunks:
+        ids = sections.setdefault(c["doc_id"], [])
+        if c["section_id"] not in ids:
+            ids.append(c["section_id"])
+    doc = {"model": MODEL, "collection": COLLECTION, "seed": seed, "chunks": n}
+    write_json(SECTIONS, doc | {"sections": sections})
+    counts = {d: len(ids) for d, ids in sections.items()}
+    typer.echo(f"{n} chunks indexed in {COLLECTION}; sections per doc {counts} -> {SECTIONS}")
+
+
+def _report_summary(state: dict[str, Any]) -> None:
+    r = state.get("report")
+    typer.echo(f"status: {state.get('status')} {state.get('reason') or ''}".rstrip())
+    if r:
+        b = r["breach"]
+        typer.echo(f"breach: {b['scope']}/{b['metric']} {b['value']:,.0f} / {b['limit']:,.0f}")
+        rc, action = r["root_cause"], r["recommended_action"]
+        typer.echo(f"root cause: {rc} ({r['confidence']:.0%}), action: {action}")
+        typer.echo("citations: " + ", ".join(c["section_id"] for c in r["policy_citations"]))
+        typer.echo(f"evidence: {len(r['evidence'])} items")
+        typer.echo("\n" + r["draft_note"] + "\n")
+    c = state.get("critique")
+    if c:
+        typer.echo(f"critic: {'passed' if c['passed'] else 'issues'} after {c['loops']} loop(s)")
+        for i in c["issues"]:
+            typer.echo(f"  [{i['agent']}] {i['message']}")
+
+
+@app.command()
+def investigate(
+    incident: str = typer.Option(..., "--incident", help="Incident ID, e.g. INC-001."),
+    variant: str = typer.Option("multi", help="multi or baseline."),
+    seed: int = typer.Option(42, help="Seed for the incident's risk run, if it must be rerun."),
+) -> None:
+    """Investigate one incident and pause for human approval (SPEC §10.5)."""
+    import uuid
+
+    from riskgraph.agents.graph import case_dict
+    from riskgraph.agents.llm import Budget, config, model_id
+    from riskgraph.agents.runner import INCIDENTS, Runtime, ensure_run, flush_traces, run_config
+
+    load_dotenv()
+    case = case_dict(INCIDENTS / incident)
+    thread = f"{incident}:{variant}:{uuid.uuid4().hex[:8]}"
+    with Runtime("postgres") as rt:
+        ensure_run(case, rt.engine, seed)
+        graph = rt.graph(variant)
+        budget = Budget()
+        cfg = run_config(thread, budget, {"incident_id": incident, "variant": variant})
+        graph.invoke({"case": case, "variant": variant}, cfg)
+        snap = graph.get_state(cfg)
+    flush_traces()
+    _report_summary(snap.values)
+    u = budget.usage()
+    price = config()["prices_per_mtok"].get(model_id(), {"input": 0.0, "output": 0.0})
+    cost = (u["input_tokens"] * price["input"] + u["output_tokens"] * price["output"]) / 1e6
+    typer.echo(f"usage: {u} cost ${cost:.4f}")
+    if "human_approval" in snap.next:
+        typer.echo(f"\nPaused for approval. Thread: {thread}")
+        typer.echo(f"riskgraph approve --thread {thread} --decision approve|reject [--edits FILE]")
+
+
+@app.command()
+def approve(
+    thread: str = typer.Option(..., help="Thread ID printed by `investigate`."),
+    decision: str = typer.Option(..., help="approve or reject."),
+    edits: Annotated[
+        Path | None, typer.Option(help="Markdown file replacing the draft note.")
+    ] = None,
+    reason: str = typer.Option("", help="Reason for a rejection."),
+) -> None:
+    """Resume a paused investigation with a human decision; approval dispatches the note."""
+    from riskgraph.agents.graph import resume
+    from riskgraph.agents.llm import Budget
+    from riskgraph.agents.runner import Runtime, run_config
+    from riskgraph.agents.tools import approval_token
+
+    load_dotenv()
+    if decision not in ("approve", "reject"):
+        raise typer.BadParameter("decision must be approve or reject")
+    incident, variant = thread.split(":")[:2]
+    with Runtime("postgres") as rt:
+        graph = rt.graph(variant)
+        cfg = run_config(thread, Budget(), {"incident_id": incident, "variant": variant})
+        snap = graph.get_state(cfg)
+        if "human_approval" not in snap.next:
+            typer.echo(f"thread {thread} is not waiting for approval", err=True)
+            raise typer.Exit(1)
+        token = approval_token(thread, incident) if decision == "approve" else ""
+        note = edits.read_text() if edits else None
+        graph.invoke(resume(decision, token, note, reason), cfg)
+        values = graph.get_state(cfg).values
+    typer.echo(f"status: {values['status']}")
+    if values.get("note_path"):
+        typer.echo(f"escalation note -> {values['note_path']}")
 
 
 @app.command()
