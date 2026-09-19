@@ -58,3 +58,53 @@ explain:
   # Euler-style allocation: average position P&L over this many tail scenarios on each
   # side of the VaR quantile.
   tail_neighbors: 5
+
+# Market data controls (SPEC §5, phase 01b). Thresholds come from 2015-2021 data only; the
+# 2022-2025 evaluation window was not used to set them.
+controls:
+  yields: [DGS2, DGS5, DGS10] # percent; every other series is a price and must be positive
+  yield_range_pct: [-1.0, 20.0]
+  # Largest believable |1-day move| per series: log return, or bp for yields. About twice
+  # the largest 2015-2021 move of that asset class.
+  max_move:
+    SPY: 0.35
+    AAPL: 0.35
+    MSFT: 0.35
+    JPM: 0.35
+    EURUSD=X: 0.06
+    INR=X: 0.06
+    DEXUSEU: 0.06
+    DEXINUS: 0.06
+    DGS2: 60
+    DGS5: 60
+    DGS10: 60
+    VIXCLS: 1.6
+  # A null is a missed print (not a holiday) when most of the series' peers print that day.
+  calendars:
+    equity: [SPY, AAPL, MSFT, JPM, VIXCLS]
+    fx: [EURUSD=X, INR=X]
+    treasury: [DGS2, DGS5, DGS10]
+    fred_fx: [DEXUSEU, DEXINUS]
+  staleness:
+    min_days: 3 # this many consecutive identical prints
+    # Liquid series only: Treasury yields are quoted to 1bp and often sit unchanged for days.
+    series: [SPY, AAPL, MSFT, JPM, EURUSD=X, INR=X, VIXCLS]
+  cross_source:
+    # yfinance factor -> FRED series in the same quote convention: DEXUSEU is USD per EUR
+    # like EURUSD=X; DEXINUS is INR per USD like INR=X. The yfinance close dated D tracks
+    # FRED's noon New York print of D-1, so D is compared with FRED's previous print.
+    pairs:
+      EURUSD=X: DEXUSEU
+      INR=X: DEXINUS
+    tolerance_bp: 200 # the largest 2015-2021 gap was 194bp
+  isolation_forest:
+    train_end: "2021-12-31" # fit on 2015-2021 only
+    vol_window: 60 # trailing prints for the z-score volatility
+    short_window: 5 # short vol for the vol ratio
+    n_estimators: 200
+    cutoff_quantile: 0.999 # flag scores above this quantile of the training scores
+  severity: # critical findings hold the factor flat in that day's revaluation
+    pandera: critical
+    staleness: critical
+    cross_source: critical
+    isolation_forest: warning
