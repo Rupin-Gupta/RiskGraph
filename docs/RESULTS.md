@@ -45,7 +45,25 @@ Source: `backtest.json`
 
 ## Market data controls
 
-TBD
+Source: `dq.json`
+
+**Held-out window:** 2022-01-01 to 2025-12-31, 200 injected corruptions (40 per type). Isolation Forest fit on data up to 2021-12-31. Recall counts corruptions with a flag on their footprint; precision counts flagged factor-dates inside a footprint.
+
+| Corruption | Variant | Detected | Flags | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|
+| stale_run | Rules | 29/40 | 59 | 0.983 | 0.725 | 0.835 |
+| stale_run | Rules + Isolation Forest | 29/40 | 62 | 0.935 | 0.725 | 0.817 |
+| spike_x10 | Rules | 11/40 | 20 | 0.950 | 0.275 | 0.426 |
+| spike_x10 | Rules + Isolation Forest | 15/40 | 29 | 0.897 | 0.375 | 0.529 |
+| sign_flip | Rules | 40/40 | 51 | 0.980 | 1.000 | 0.990 |
+| sign_flip | Rules + Isolation Forest | 40/40 | 54 | 0.926 | 1.000 | 0.962 |
+| missing | Rules | 40/40 | 41 | 0.976 | 1.000 | 0.988 |
+| missing | Rules + Isolation Forest | 40/40 | 45 | 0.911 | 1.000 | 0.954 |
+| decimal_shift | Rules | 40/40 | 81 | 0.988 | 1.000 | 0.994 |
+| decimal_shift | Rules + Isolation Forest | 40/40 | 84 | 0.952 | 1.000 | 0.976 |
+| overall | Rules | 160/200 | 248 | 0.996 | 0.800 | 0.887 |
+| overall | Rules + Isolation Forest | 162/200 | 256 | 0.988 | 0.810 | 0.890 |
+
 
 ## Agent diagnosis (test split)
 

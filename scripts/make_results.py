@@ -78,7 +78,29 @@ def render_backtest(doc: dict[str, Any]) -> list[str]:
     return lines
 
 
-RENDERERS = {"backtest.json": render_backtest}
+def render_dq(doc: dict[str, Any]) -> list[str]:
+    """Data controls: rules only vs rules + Isolation Forest, per corruption type."""
+    w, c = doc["window"], doc["corruptions"]
+    lines = [
+        f"**Held-out window:** {w['start']} to {w['end']}, {c['total']} injected corruptions "
+        f"({c['per_type']} per type). Isolation Forest fit on data up to "
+        f"{doc['isolation_forest']['train_end']}. Recall counts corruptions with a flag on their "
+        "footprint; precision counts flagged factor-dates inside a footprint.",
+        "",
+        "| Corruption | Variant | Detected | Flags | Precision | Recall | F1 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for kind in doc["rules"]:
+        for key, name in (("rules", "Rules"), ("rules_iforest", "Rules + Isolation Forest")):
+            r = doc[key][kind]
+            lines.append(
+                f"| {kind} | {name} | {r['detected']}/{r['corruptions']} | {r['flags']} | "
+                f"{r['precision']:.3f} | {r['recall']:.3f} | {r['f1']:.3f} |"
+            )
+    return lines
+
+
+RENDERERS = {"backtest.json": render_backtest, "dq.json": render_dq}
 
 
 def render(metrics_dir: Path = METRICS) -> str:

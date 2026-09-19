@@ -1,0 +1,6 @@
+{
+  "window_days": 250,
+  "firm": {
+    "precision": 0.9
+  }
+}

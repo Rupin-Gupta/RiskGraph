@@ -1,6 +1,13 @@
 {
-  "window_days": 250,
-  "firm": {
-    "precision": 0.9
+  "window": {"start": "2022-01-01", "end": "2025-12-31"},
+  "corruptions": {"total": 80, "per_type": 40},
+  "isolation_forest": {"train_end": "2021-12-31", "cutoff": 0.74},
+  "rules": {
+    "stale_run": {"corruptions": 40, "detected": 29, "flags": 59, "true_flags": 58, "precision": 0.983, "recall": 0.725, "f1": 0.835},
+    "overall": {"corruptions": 80, "detected": 60, "flags": 100, "true_flags": 99, "precision": 0.99, "recall": 0.75, "f1": 0.8534}
+  },
+  "rules_iforest": {
+    "stale_run": {"corruptions": 40, "detected": 29, "flags": 62, "true_flags": 58, "precision": 0.9355, "recall": 0.725, "f1": 0.8169},
+    "overall": {"corruptions": 80, "detected": 62, "flags": 110, "true_flags": 104, "precision": 0.9455, "recall": 0.775, "f1": 0.8518}
   }
 }
