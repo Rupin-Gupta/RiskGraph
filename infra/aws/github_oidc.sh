@@ -6,7 +6,14 @@ source "$(dirname "$0")/common.sh"
 
 role="$NAME-github-deploy"
 provider="arn:aws:iam::$ACCOUNT:oidc-provider/token.actions.githubusercontent.com"
-sub="repo:$GITHUB_REPO:ref:refs/heads/main"
+# GitHub issues immutable subjects on this account: repo:<owner>@<ownerId>/<repo>@<repoId>:...
+# Trust both spellings exactly, so the role keeps working whichever form a run carries.
+subs="\"repo:$GITHUB_REPO:ref:refs/heads/main\""
+if ids="$(gh api "repos/$GITHUB_REPO" --jq '[.owner.id, .id] | @tsv' 2>/dev/null)" && [[ -n $ids ]]; then
+    owner_id="${ids%%$'\t'*}"
+    repo_id="${ids##*$'\t'}"
+    subs="$subs, \"repo:${GITHUB_REPO%%/*}@$owner_id/${GITHUB_REPO##*/}@$repo_id:ref:refs/heads/main\""
+fi
 trust="$(cat <<EOF
 {"Version": "2012-10-17", "Statement": [{
   "Effect": "Allow",
@@ -14,7 +21,7 @@ trust="$(cat <<EOF
   "Action": "sts:AssumeRoleWithWebIdentity",
   "Condition": {"StringEquals": {
     "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-    "token.actions.githubusercontent.com:sub": "$sub"}}}]}
+    "token.actions.githubusercontent.com:sub": [$subs]}}}]}
 EOF
 )"
 id="$(instance_id)"
@@ -44,7 +51,7 @@ EOF
 )"
 
 plan "OIDC provider token.actions.githubusercontent.com (audience sts.amazonaws.com).
-Role $role, assumable only by $sub, with:
+Role $role, assumable only by GitHub Actions on main of $GITHUB_REPO, with:
 $policy
 ${id:+Deploys go to instance $id only.}${id:-No instance yet: re-run this after ec2_instance.sh to add the SSM permission.}" \
     "\$0 (IAM and OIDC are free)."

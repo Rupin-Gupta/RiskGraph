@@ -53,18 +53,6 @@ jobs:
           echo "ready=${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}" >> "$GITHUB_OUTPUT"
           echo "deployable=${{ vars.AWS_DEPLOY_ROLE_ARN != '' && vars.EC2_INSTANCE_ID != '' }}" >> "$GITHUB_OUTPUT"
 
-      - name: TEMP debug the OIDC claims
-        if: steps.cfg.outputs.ready == 'true'
-        run: |
-          token=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
-          python3 - "$token" <<'PY'
-          import base64, json, sys
-          part = sys.argv[1].split(".")[1]
-          claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
-          print({k: claims.get(k) for k in ("sub", "aud", "repository", "ref", "iss")})
-          PY
-
       - uses: aws-actions/configure-aws-credentials@v6
         if: steps.cfg.outputs.ready == 'true'
         with:
