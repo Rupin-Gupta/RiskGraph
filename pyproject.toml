@@ -5,7 +5,13 @@ description = "Agentic traded-risk copilot for a fictional bank (portfolio proje
 readme = "README.md"
 requires-python = "~=3.11.0"
 dependencies = [
+    "boto3>=1.43.98",
     "fredapi>=0.5.2",
+    "langchain-aws>=1.7.8",
+    "langchain-core>=1.6.3",
+    "langfuse>=4.15.4",
+    "langgraph>=1.2.11",
+    "langgraph-checkpoint-postgres>=3.1.2",
     "matplotlib>=3.11.2",
     "numpy>=2.4.6",
     "pandas>=3.0.6",
@@ -17,14 +23,27 @@ dependencies = [
     "pyyaml>=6.0.3",
     "scikit-learn>=1.9.1",
     "scipy>=1.17.1",
+    "sentence-transformers>=6.1.0",
     "sqlalchemy>=2.0.54",
+    "torch>=2.14.0",
     "typer>=0.27.2",
+    "weaviate-client>=4.23.1",
     "yfinance>=1.7.0",
 ]
 
 # ponytail: virtual project (no build backend, see ADR-002); src/ reaches Python via PYTHONPATH.
 [tool.uv]
 package = false
+
+# CPU-only torch (pulled in by sentence-transformers): the default Linux wheel drags ~3GB of
+# CUDA packages into CI (ADR-009).
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [
