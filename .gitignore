@@ -11,3 +11,6 @@ __pycache__/
 # Local tooling
 .DS_Store
 graphify-out/
+
+# Generated risk runs (run.json per date, backtest history)
+data/runs/
