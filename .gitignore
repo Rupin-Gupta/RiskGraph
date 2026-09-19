@@ -14,3 +14,6 @@ graphify-out/
 
 # Generated risk runs (run.json per date, backtest history)
 data/runs/
+
+# Downloaded Basel Framework HTML (fetched by corpus/download.py, not committed)
+corpus/raw/
