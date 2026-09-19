@@ -23,19 +23,30 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, Send, interrupt
 
 from riskgraph.agents.critic import check_report
-from riskgraph.agents.llm import Budget, BudgetExceeded, SchemaFailure, ask, config, react, wrap
+from riskgraph.agents.llm import (
+    MAX_STEPS,
+    Budget,
+    BudgetExceeded,
+    SchemaFailure,
+    ask,
+    config,
+    react,
+    wrap,
+)
 from riskgraph.agents.schemas import Breach, Findings, IncidentReport, NoteReview, Plan, ReportDraft
 from riskgraph.agents.tools import Case, Toolbox, send_escalation_email
 
 MakeBox = Callable[[Mapping[str, Any]], Toolbox]
+POLICY_TURNS = 2  # one round of searches, then findings: retrieval was the largest token cost
 SPECIALISTS = ("attribution", "data_quality", "policy")
 
 ROLE = "You work in Market Risk Management at Meridian Bank, a fictional bank."
 SCHEMA_GUIDE = """Report fields:
 - root_cause: position_change (new or changed trades drive the metric: positive VaR explain
   position effect); market_move (unchanged positions, market moves or volatility drive it, no
-  data-quality finding on a contributing risk factor); bad_market_data (a data-quality finding
-  sits on a risk factor that contributes to the metric); no_true_breach (utilization below 100%:
+  data-quality finding on a contributing risk factor); bad_market_data (a data-quality finding of
+  any severity, critical or warning, sits on a risk factor that contributes to the metric; a
+  source gap inside tolerance does not clear a warning); no_true_breach (utilization below 100%:
   a near miss or a false alert); unknown (the evidence is insufficient).
 - recommended_action: escalate_to_risk_manager, route_to_data_ops, or no_action, following the
   routing in the Meridian Bank limit policy.
@@ -43,8 +54,9 @@ SCHEMA_GUIDE = """Report fields:
 - evidence: 2-6 items. Copy each value exactly from a number in a tool result, with that
   result's result_id and the unit it uses (USD, fraction, bp). Never compute, count, round, or
   convert values. State absences (no new trades, no findings) in the note, not as evidence.
-- policy_citations: the 2-4 sections that govern this case (its root-cause category and its
-  escalation or routing path), only from search_policy results, with exact doc_id and section_id.
+- policy_citations: 2-4 sections, only from search_policy results, with exact doc_id and
+  section_id: the section defining the chosen root-cause category, the section setting its
+  escalation or routing path, and (for a breach) the escalation rule for the alerted limit type.
 - draft_note: Markdown for a risk manager, under 250 words. Lead with the required action, then
   the limit, value, utilization, root cause, key evidence, and the cited sections. In the note,
   round numbers for reading (USD 1.35mn, 103.5%); evidence values stay exact."""
@@ -71,9 +83,9 @@ the risk factors that contribute most to the alerted scope, and compare sources 
 Say clearly whether any finding sits on a contributing factor.""",
     "policy": f"""{ROLE} You are the policy specialist. Use search_policy to find the sections
 that govern this alert: status definitions and alert validation, root-cause categories and their
-evidence requirements, escalation paths and routing (including data-issue routing), and relevant
-Basel paragraphs. Run at most 3 specific searches, all in one turn. Cite only sections that
-search_policy returned, with their exact doc_id and section_id.""",
+evidence requirements, escalation paths and routing (including data-issue routing and near
+misses), and relevant Basel paragraphs. Run at most 3 specific searches, all in one turn. Cite
+only sections that search_policy returned, with their exact doc_id and section_id.""",
 }
 FINISH = (
     "Stop using tools. Report your findings: a short summary and evidence items whose values are"
@@ -279,7 +291,10 @@ def build_graph(
                 task += f"\nPrevious findings:\n{wrap(f'agent:{agent}', prev)}\nFix every point."
             try:
                 box = make_box(state["case"])
-                msgs, calls = react(llm, box, allow[agent], PROMPTS[agent], task, budget, agent)
+                turns = POLICY_TURNS if agent == "policy" else MAX_STEPS
+                msgs, calls = react(
+                    llm, box, allow[agent], PROMPTS[agent], task, budget, agent, turns
+                )
                 done = FINISH_POLICY if agent == "policy" else FINISH
                 findings = ask(llm, Findings, [*msgs, HumanMessage(done)], budget, agent)
             except (BudgetExceeded, SchemaFailure) as e:
@@ -330,8 +345,8 @@ def build_graph(
         feedback: dict[str, str] = {}
         for i in issues:
             feedback[i["agent"]] = (feedback.get(i["agent"], "") + f"- {i['message']}\n").strip()
-            if i["agent"] != "writer":  # the writer must also redo the report
-                feedback.setdefault("writer", "- specialist findings were revised")
+        if issues:  # the writer redoes the report in every case, so it sees every issue
+            feedback["writer"] = "\n".join(f"- {i['message']}" for i in issues)
         return {
             "critique": {"passed": not issues, "issues": issues, "loops": loops},
             "feedback": feedback,

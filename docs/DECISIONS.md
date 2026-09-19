@@ -199,7 +199,9 @@ Dependencies are approved per phase in SPEC §12; anything else needs explicit a
 - Gemini API free tier: no card; per-project request limits.
 
 **Decision.**
-- The agents call a Gemini Flash model through Google's OpenAI-compatible endpoint with `langchain-openai` (approved for this change), at temperature 0. A client-side rate limiter holds calls under the key's requests-per-minute limit.
+- The agents call `gemini-3.5-flash-lite` through Google's OpenAI-compatible endpoint with `langchain-openai` (approved for this change), at temperature 0. It is the only free model on this key with a usable daily quota: 15 RPM and 500 requests/day. The Flash models allow 20 requests/day, and Gemma 4 31B failed with server errors. A client-side rate limiter holds calls at 14 per minute.
+- Gemini 3 models require each tool call's `thought_signature` to be sent back on the next turn. `langchain-openai` drops it, so a small subclass (`agents/llm.py`, `GeminiChat`) carries it through.
+- Tuned on dev only, and applied equally to both variants to fit the 60k-token budget: batch tool calls into few turns, never re-fetch the intake limit status, state absences in the note rather than as evidence values, and at most 3 policy searches. The ReAct loop is capped at 6 turns, and retrieved sections are trimmed to 700 characters. After the first dev pass (26 multi-agent dev runs): the writer now receives every critic issue, not only its own; the shared definitions state that an anomaly warning on a contributing factor counts as bad data even when the source gap is inside tolerance; the citation guidance names the category, path, and limit-type sections; and the policy agent gets 2 turns.
 - Structured output uses function calling on every provider.
 - `llm.provider: bedrock` in `configs/agents.yaml` restores ChatBedrockConverse unchanged.
 - Free-tier calls are priced at $0; token counts are still reported.

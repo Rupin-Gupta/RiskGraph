@@ -194,6 +194,7 @@ def react(
     task: str,
     budget: Budget,
     agent: str,
+    max_steps: int = MAX_STEPS,
 ) -> tuple[list[BaseMessage], list[dict[str, Any]]]:
     """Tool loop until the model stops calling tools. Returns the messages and the logged calls
     ({agent, tool, args, result_id, result}). Only allowlisted tools are bound or executed."""
@@ -201,7 +202,7 @@ def react(
     rules = f"{system}\n\n{UNTRUSTED} {EFFICIENT}"
     msgs: list[BaseMessage] = [SystemMessage(rules), HumanMessage(task)]
     calls: list[dict[str, Any]] = []
-    for _ in range(MAX_STEPS):
+    for _ in range(max_steps):
         budget.check()
         ai = bound.invoke(msgs)
         budget.charge(ai, agent)
