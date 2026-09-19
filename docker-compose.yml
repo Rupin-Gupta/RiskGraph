@@ -38,6 +38,32 @@ services:
       timeout: 5s
       retries: 20
 
+  # FastAPI + agents. Reads .env (Gemini key, APPROVAL_SECRET, API_TOKEN); data is the host's.
+  api:
+    build: .
+    image: riskgraph-api:local
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      WEAVIATE_HOST: weaviate
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+
+  # Static dashboard; its nginx proxies /api to the api service. http://localhost:3000
+  frontend:
+    build: ./frontend
+    image: riskgraph-frontend:local
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   pgdata:
   weaviate_data:

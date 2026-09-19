@@ -1,0 +1,49 @@
+# Production override for the EC2 host (SPEC §13.2):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Images come from ECR, only the nginx proxy publishes ports, every service restarts with the
+# instance, and logs go to CloudWatch through the awslogs driver (instance role credentials).
+x-logging: &logging
+  driver: awslogs
+  options:
+    awslogs-region: ${AWS_REGION:?set AWS_REGION}
+    awslogs-group: /riskgraph/app
+    tag: "{{.Name}}"
+
+services:
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+    logging: *logging
+
+  weaviate:
+    ports: !reset []
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    build: !reset null
+    image: ${ECR_REGISTRY:?set ECR_REGISTRY}/riskgraph-api:${IMAGE_TAG:-latest}
+    environment:
+      DISPATCH_MODE: ses
+    restart: unless-stopped
+    logging: *logging
+
+  frontend:
+    build: !reset null
+    image: ${ECR_REGISTRY}/riskgraph-frontend:${IMAGE_TAG:-latest}
+    ports: !reset []
+    restart: unless-stopped
+    logging: *logging
+
+  # Basic auth in front of everything except the scheduler's token-protected trigger.
+  proxy:
+    image: nginx:stable-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${HTPASSWD_FILE:-/opt/riskgraph/htpasswd}:/etc/nginx/htpasswd:ro
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    logging: *logging

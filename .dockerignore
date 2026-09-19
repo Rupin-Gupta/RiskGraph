@@ -1,0 +1,11 @@
+# Allowlist: only what the API image needs. Keeps .env, data, and git history out of images.
+*
+!pyproject.toml
+!uv.lock
+!configs/
+!corpus/download.py
+!corpus/sections.json
+!corpus/synthetic/
+!reports/metrics/
+!src/
+**/__pycache__

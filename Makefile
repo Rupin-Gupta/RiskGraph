@@ -53,7 +53,7 @@ eval-agents: db-migrate
 		--runs $(or $(RUNS),1) $(if $(DRY_RUN),--dry-run)
 
 up:
-	docker compose up -d --wait
+	docker compose up -d --build --wait
 
 down:
 	docker compose down
