@@ -95,3 +95,28 @@ Dependencies are approved per phase in SPEC §12; anything else needs explicit a
 **Alternatives.** Repricing with the next day's EWMA vols (adds risk the VaR does not model); two-significant-figure limits (the firm limit then exceeds its whole history, so no breach occurs); a fixed multiple of mean VaR (breach counts not controlled).
 
 **Consequences.** By construction roughly 1 − quantile of calibration-period days breach each limit, clustered in a few episodes (actual counts in RESULTS.md). Slowly moving VaR series (rates) sit in the warning band on many days, so later near-miss control incidents are easy to find.
+
+## ADR-008: Market data controls: exclusion, alignment, and evaluation protocol
+
+**Status:** Accepted (phase 01b)
+
+**Context.** SPEC §5 lists the checks and the evaluation. It leaves open how a critical finding changes the daily run, how to align the yfinance and FRED FX series, how to tell a holiday from a missed print, and how to define corruptions and per-type precision.
+
+**Decision.**
+- **Exclusion.** A risk factor with a critical finding on the run date is held flat: `RiskContext.excluded` zeroes its shocks in the historical-simulation window, the Monte Carlo draws (Cholesky of the remaining factors' covariance block), historical stress replays, and VaR explain. Its level, EWMA vol, and sensitivities are unchanged, and hypothetical stress still applies. This touches `risk/`, which is outside the phase's listed scope; the change was approved in the phase 01b session. Runs with no exclusion are bit-identical to before.
+- **Severity.** Rule checks (Pandera, staleness, cross-source) are critical. Isolation Forest findings are warnings: they go to review and never hold a factor flat.
+- **Scope of a daily run.** `run-daily` records findings for its own date only. Earlier dates were checked by their own runs.
+- **FX alignment.** The yfinance close dated D is compared with FRED's previous print, which it tracks more closely than the same-day print. Tolerance 200bp.
+- **Holidays.** A null is a missed print only when most of the series' calendar peers print that day.
+- **Staleness.** Liquid series only (equities, yfinance FX, VIX). Treasury yields are quoted to 1bp and sit unchanged for days in normal markets.
+- **Evaluation.** Five corruption definitions as in METHODOLOGY.md. A corruption's footprint is every factor-date whose level or 1-day move differs from the clean data. Per-type rows inject one type at a time at the same positions; the overall row injects all 200.
+
+**Alternatives.**
+- Zero the factor's shocks with no Monte Carlo change: Cholesky rejects a zero-variance factor.
+- Mask the bad print and reuse the gap policy: the run date itself becomes incomplete and cannot be valued.
+- Record exclusions without applying them.
+- Same-day FX alignment: larger routine gaps.
+- Score only the corrupted print: this penalizes the unavoidable flag on the next day's move, whose shock is equally corrupted.
+- Inject all types into one panel for per-type precision: false alarms could not be attributed to a type.
+
+**Consequences.** A held factor contributes no VaR that day, so VaR is understated until the data is fixed. This is visible in run.json and `dq_findings` for the phase 02 data-quality agent. Stale Treasury prints and ×10 spikes on quiet days are largely invisible to the rules; RESULTS.md reports this rather than tuning thresholds on the evaluation window.

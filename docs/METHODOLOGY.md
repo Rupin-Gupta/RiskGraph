@@ -33,7 +33,7 @@ A trade valued on its own trade date is priced exactly as booked. Risk therefore
 
 Ten factors: SPY, AAPL, MSFT, JPM, EURUSD, USDINR (log returns), DGS2, DGS5, DGS10 (absolute changes in bp), and VIX (log changes). Shocks are applied to the valuation date's market state, and every trade is fully revalued in every scenario (vectorized with NumPy; no loop over scenarios or trades).
 
-**Gap policy (until the phase 01b data controls).** A date is used only if all ten factors are observed. Incomplete dates (exchange or FRED holidays, missing prints) are dropped, so the next shock spans the gap. Each run lists the dropped dates inside its scenario window in `run.json`.
+**Gap policy.** A date is used only if all ten factors are observed. Incomplete dates (exchange or FRED holidays, missing prints) are dropped, so the next shock spans the gap. Each run lists the dropped dates inside its scenario window in `run.json`. Missed prints (as opposed to holidays) are also reported by the market data controls below.
 
 ### VaR and ES
 
@@ -82,6 +82,54 @@ The day-over-day change in historical VaR is split into:
 
 positions_{t−1} is the base book, and positions_t is the run's book (a book override, if any). Top contributors use Euler-style allocation: each trade's mean loss over the 11 scenarios ranked around the VaR scenario (5 either side). Factor contributions replay each factor's move alone over the same scenarios; the part the one-at-a-time losses leave unexplained is reported as `cross_effects`.
 
+## Market data controls
+
+`marketdata/controls.py` checks the processed panel (all twelve series) before each daily run. Parameters are in `configs/risk.yaml` under `controls:`. They were set from 2015–2021 data only; the 2022–2025 evaluation window was not used to choose them.
+
+### Checks
+
+| Check | Rule | Severity |
+|---|---|---|
+| Pandera `positive_price` | Every series except the yields is strictly positive | critical |
+| Pandera `yield_range` | DGS2, DGS5, DGS10 within [−1%, 20%] | critical |
+| Pandera `max_move` | \|1-day move\| within a per-series limit: 0.35 (log) for equities, 0.06 for FX, 60bp for yields, 1.6 (log) for VIX, about twice the largest 2015–2021 move of each asset class | critical |
+| Pandera `missing_print` | A null on a day when most of the series' calendar peers print. Calendars: equities with VIX, yfinance FX, Treasuries, FRED FX. A holiday nulls the whole group, so it is not flagged | critical |
+| Pandera index | Dates sorted and unique. A failure is structural and stops the run | — |
+| Staleness | 3 or more consecutive identical prints, on liquid series only (equities, yfinance FX, VIX). Treasury yields are quoted to 1bp and often sit unchanged for days, so they are not checked | critical |
+| Cross-source | yfinance EUR/USD and USD/INR vs FRED DEXUSEU and DEXINUS, beyond 200bp (just above the largest 2015–2021 gap). The pairs share a quote convention: DEXUSEU is USD per EUR like EURUSD=X, and DEXINUS is INR per USD like INR=X. yfinance's close dated D matches FRED's noon New York print of D−1 more closely than the same-day print, so D is compared with FRED's previous print | critical |
+| Isolation Forest | Anomaly score above the 99.9th percentile of the training scores | warning |
+
+Moves are measured between observed prints, as the engine measures shocks: log returns, and bp for yields. A move after a gap spans the gap.
+
+**Isolation Forest.** One scikit-learn model (200 trees, seeded) pooled across the ten risk factors. Features per factor and date, all computable on the run date:
+
+- return z-score: the move divided by the volatility of the previous 60 moves (today excluded)
+- reversal: −(move × previous move) / trailing variance, positive when the day undoes the previous day's move. This is the causal form of SPEC's "next-day reversal": the day after a bad print scores high, and that day belongs to the corruption's footprint (below).
+- vol ratio: volatility of the last 5 moves over the trailing volatility
+- cross-source gap: |gap| / tolerance for EUR/USD and USD/INR, 0 for other factors
+
+The model is fit on data up to 2021-12-31. The panel is cut at that date before features are computed, so no later print can reach the fit; a test checks that corrupting every later print leaves the fitted model unchanged. The score cutoff was fixed before the evaluation and not tuned on 2022+. Isolation Forest findings are warnings: a statistical flag goes to review and does not change the run.
+
+### Effect on the daily run
+
+`run-daily` runs the controls for its date first and writes the findings to `dq_findings` and to `controls.findings` in run.json before the engine starts, so a run that then fails on bad data still leaves its evidence. A risk factor with a critical finding on the run date is **held flat** in that day's revaluation (ADR-008). Its shocks are zero in the historical-simulation window, in the Monte Carlo draws (the Cholesky factor is taken over the remaining factors), in the historical stress replays, and in the VaR-explain legs. Its level, EWMA vol, and sensitivities are not altered, and hypothetical stress scenarios (specified shocks, not data) still apply. The engine never fills or replaces a print. Held factors are listed in `controls.excluded_factors`.
+
+### Evaluation protocol (`eval/dq.py`, `make eval-dq`)
+
+- **Held-out copy:** the panel through 2025-12-31. Corruptions and scoring are confined to 2022-01-01 to 2025-12-31; earlier data only serves as look-back history for the checks.
+- **Corruptions:** 200, 40 per type, at seeded random dates on the ten risk factors. A factor's corruptions are at least 10 business days apart, and each must change the data.
+  - stale run: the print and the next two repeat the previous print
+  - ×10 spike: the day's move is multiplied by 10 (log return; bp for yields), and the next day returns to the true path
+  - sign flip: the level is negated
+  - missing value: the print is removed
+  - decimal shift: the level is multiplied by 10 or 0.1
+- **Footprint:** the factor-dates whose level or 1-day move differs from the clean data. That is the corrupted prints plus the next print, whose move starts from a corrupted value; the engine would take a bad shock on that day too.
+- **Metrics:** a flag is any finding on a risk-factor date. FRED second-source series are not scored. Recall is the share of corruptions with at least one flagged footprint date. Precision is the share of flagged factor-dates inside a footprint, so false alarms on genuine 2022–2025 data count against it. F1 is their harmonic mean.
+- **Per type vs overall:** per-type rows inject that type's 40 corruptions alone, at the same positions, so every false alarm belongs to one type. The overall row injects all 200 together.
+- **Variants:** rules only (Pandera, staleness, cross-source) and rules + Isolation Forest, scored from the same run of the controls.
+
+Results are in RESULTS.md, "Market data controls".
+
 ## Model choices
 
 TBD (volatility models in phase 05b).
@@ -100,4 +148,7 @@ From SPEC Appendix B, as they apply to the risk engine:
 - The EUR and INR legs of FX forwards discount at constant proxy rates, so foreign-rate risk is not captured.
 - Equity prices are unadjusted closes and options assume no dividends (ADR-003).
 - Monte Carlo and delta-normal VaR assume normal shocks, so they understate fat tails compared with historical simulation.
-- Market data gaps are handled by dropping incomplete dates. Data-quality controls arrive in phase 01b.
+- Market data gaps are handled by dropping incomplete dates.
+- A risk factor held flat after a critical data finding contributes no VaR that day, so VaR is understated until the data is corrected. The run records this rather than repairing the data.
+- Stale Treasury prints are not checked for staleness (1bp quoting), and a ×10 spike on a quiet day stays within normal ranges. The rules largely miss both by design.
+- The cross-source check compares with FRED's previous print. FRED's H.10 FX series are published with a delay, so in live operation the check would use the latest available print.

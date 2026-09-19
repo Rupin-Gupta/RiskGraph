@@ -96,7 +96,7 @@ controls:
     pairs:
       EURUSD=X: DEXUSEU
       INR=X: DEXINUS
-    tolerance_bp: 200 # the largest 2015-2021 gap was 194bp
+    tolerance_bp: 200 # just above the largest 2015-2021 gap
   isolation_forest:
     train_end: "2021-12-31" # fit on 2015-2021 only
     vol_window: 60 # trailing prints for the z-score volatility
