@@ -47,3 +47,51 @@ Dependencies are approved per phase in SPEC §12; anything else needs explicit a
 **Alternatives.** Use `Adj Close` (total return, but its level is not a tradable spot for option pricing); use an exchange holiday calendar (needs a new dependency).
 
 **Consequences.** Pricing uses the quoted spot level. Dividend drops appear as small negative returns on equity factors; phase 01a can switch equity returns to `Adj Close` from the raw files if needed. Phase 01b market data controls see every gap.
+
+## ADR-004: Constant-maturity book held at constant moneyness and USD notional
+
+**Status:** Accepted (phase 01a)
+
+**Context.** SPEC §3.1 makes the book constant-maturity so its composition is stable across the backtest window. The SPEC does not say how strikes and quantities behave. Equity prices move a long way between 2022 and 2026, so absolute strikes struck in 2024 would sit deep in or out of the money for much of the window, and fixed share counts would make equity VaR track price levels rather than risk.
+
+**Decision.** On each valuation date the book is re-held: tenors keep their trade-date length, option strikes and FX contract rates scale by level(valuation date) / level(trade date), and equity and option positions keep their USD notional (units = notional / spot). A trade valued on its trade date is priced exactly as booked. Swap fixed rates and bond coupons stay absolute, because rate levels barely change rate risk.
+
+**Alternatives.** Absolute terms (the book drifts in character across the window); regenerating the book every day from the seed (strikes then differ day to day, which creates a spurious position effect in VaR explain).
+
+**Consequences.** VaR moves with volatility and correlation, which is what limits and backtests should measure. VaR explain has a zero position effect for an unchanged book. Backtest P&L excludes time decay. Trade notionals for equities and options are USD amounts, not share counts.
+
+## ADR-005: Pricing conventions
+
+**Status:** Accepted (phase 01a)
+
+**Context.** SPEC §4.1 fixes the models but not the compounding, day count, or foreign-rate inputs.
+
+**Decision.** DGS2/5/10 yields are used as zero rates with semi-annual compounding (so a par bond prices at par, and a swap's par rate equals a flat curve's rate), interpolated linearly with flat extrapolation. Day count is ACT/365.25. Coupons and fixed legs are semi-annual, counted back from maturity; a first stub shorter than about 4 days merges into the next period. Swaps are valued on a reset date (float leg = N · (1 − DF(T))). FX forwards use covered interest parity with constant proxy foreign rates (EUR 2%, INR 6.5%, `configs/risk.yaml`). Black-Scholes uses the curve rate converted to continuous compounding and no dividends. DV01 is PV(curve + 1bp) − PV(curve), so a long bond has negative DV01.
+
+**Alternatives.** Bootstrapping zero rates from par yields; an OIS/SOFR curve (no data); foreign rates from a second data source (not in the approved data).
+
+**Consequences.** Errors of a few bp against a bootstrapped curve. Foreign-rate risk on FX forwards is not a risk factor. All of this is listed in METHODOLOGY.md, Assumptions and limitations.
+
+## ADR-006: Run identity, overrides, and storage
+
+**Status:** Accepted (phase 01a)
+
+**Context.** SPEC §4.8 lists the `risk_results` and `limit_status` columns. Incident injection (§11) will run many overridden runs on dates that also have a base run.
+
+**Decision.** Both tables add a `run_id` column: the date for a base run, `<date>+<8 hex chars of the override files' SHA-256>` otherwise. A rerun replaces its own rows in one transaction, and run.json goes to `data/runs/<run_id>/`. `--book-override` replaces the whole book (parquet, or JSON as written by the generator). `--market-override` is a parquet on the panel's date index whose non-missing values replace the panel's. VaR explain compares the run's book with the base book (`data/synthetic/book/book.parquet`) as the prior day's positions. Tables are created by `python -m riskgraph.db.migrate` (SQLAlchemy `create_all`, idempotent).
+
+**Alternatives.** Key rows by date only (incident runs would overwrite base runs); Alembic migrations (not an approved dependency, and unnecessary while tables are only added).
+
+**Consequences.** Base and incident runs coexist for the same date. Changing a column on a table that already holds data will need a versioned migration.
+
+## ADR-007: Backtest P&L and limit calibration
+
+**Status:** Accepted (phase 01a)
+
+**Context.** SPEC §4.5 asks for hypothetical P&L against the prior day's VaR, and §4.6 for limits calibrated so breaches are rare but occur. Neither fixes the P&L's treatment of model parameters or the calibration rule.
+
+**Decision.** Hypothetical P&L for date t applies t's realized moves of the ten risk factors to the prior date's positions and market state, holding single-stock EWMA vols (a model parameter) fixed, so P&L and VaR share one factor set. Each desk and firm VaR limit, and the firm stress-loss limit, is the 98th percentile of that metric's daily history over 2022–2025, rounded to three significant figures. The backtest re-derives these values and reports breach and warning days under the configured limits.
+
+**Alternatives.** Repricing with the next day's EWMA vols (adds risk the VaR does not model); two-significant-figure limits (the firm limit then exceeds its whole history, so no breach occurs); a fixed multiple of mean VaR (breach counts not controlled).
+
+**Consequences.** By construction roughly 1 − quantile of calibration-period days breach each limit, clustered in a few episodes (actual counts in RESULTS.md). Slowly moving VaR series (rates) sit in the warning band on many days, so later near-miss control incidents are easy to find.
