@@ -45,9 +45,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Images can be built before the instance exists; the SSM deploy waits for it.
       - name: Check the deploy variables
         id: cfg
-        run: echo "ready=${{ vars.AWS_DEPLOY_ROLE_ARN != '' && vars.EC2_INSTANCE_ID != '' }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "ready=${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}" >> "$GITHUB_OUTPUT"
+          echo "deployable=${{ vars.AWS_DEPLOY_ROLE_ARN != '' && vars.EC2_INSTANCE_ID != '' }}" >> "$GITHUB_OUTPUT"
 
       - uses: aws-actions/configure-aws-credentials@v6
         if: steps.cfg.outputs.ready == 'true'
@@ -83,7 +86,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
 
       - name: Deploy through SSM Run Command
-        if: steps.cfg.outputs.ready == 'true'
+        if: steps.cfg.outputs.deployable == 'true'
         env:
           INSTANCE: ${{ vars.EC2_INSTANCE_ID }}
         run: |
