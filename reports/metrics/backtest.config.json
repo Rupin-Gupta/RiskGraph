@@ -1,0 +1,79 @@
+{
+  "start": "2022-01-01",
+  "end": "2026-09-17",
+  "seed": 42,
+  "panel": "data/processed/market_panel.parquet",
+  "book": "data/synthetic/book/book.parquet",
+  "risk": {
+    "vol_source": "ewma",
+    "ewma_lambda": 0.94,
+    "pricing": {
+      "option_vol": {
+        "SPY": "vix",
+        "single_stock": "vol_source"
+      },
+      "curve": {
+        "points": [
+          "DGS2",
+          "DGS5",
+          "DGS10"
+        ],
+        "interpolation": "linear",
+        "extrapolation": "flat"
+      },
+      "dv01_bump_bp": 1
+    },
+    "fx_forward": {
+      "foreign_rate_proxy": {
+        "EUR": 0.02,
+        "INR": 0.065
+      }
+    },
+    "risk_factors": {
+      "equity": "log_return",
+      "fx": "log_return",
+      "rates": "absolute_change_bp",
+      "vix": "log_change"
+    },
+    "var": {
+      "horizon_days": 1,
+      "confidence": 0.99,
+      "es_confidence": 0.975,
+      "window_days": 500,
+      "levels": [
+        "desk",
+        "firm"
+      ]
+    },
+    "parametric": {
+      "covariance": "ewma"
+    },
+    "monte_carlo": {
+      "n_scenarios": 10000,
+      "correlation": "cholesky",
+      "revaluation": "full"
+    },
+    "backtest": {
+      "window_days": 250,
+      "pnl": "hypothetical",
+      "tests": [
+        "kupiec_pof",
+        "christoffersen_independence"
+      ],
+      "traffic_light": {
+        "green": [
+          0,
+          4
+        ],
+        "yellow": [
+          5,
+          9
+        ],
+        "red_from": 10
+      }
+    },
+    "explain": {
+      "tail_neighbors": 5
+    }
+  }
+}

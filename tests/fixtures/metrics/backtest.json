@@ -1,8 +1,77 @@
 {
-  "firm": {
-    "exceptions": 3,
-    "kupiec_p_value": 0.71,
-    "traffic_light": "green"
+  "window": {
+    "start": "2025-01-02",
+    "end": "2025-12-31",
+    "days": 250,
+    "historical": {
+      "firm": {
+        "exceptions": 3,
+        "expected": 2.5,
+        "kupiec_lr": 0.1,
+        "kupiec_p_value": 0.71,
+        "christoffersen_lr": 0.07,
+        "christoffersen_p_value": 0.79,
+        "traffic_light": "green"
+      }
+    },
+    "monte_carlo": {
+      "firm": {
+        "exceptions": 3,
+        "expected": 2.5,
+        "kupiec_lr": 0.1,
+        "kupiec_p_value": 0.71,
+        "christoffersen_lr": 0.07,
+        "christoffersen_p_value": 0.79,
+        "traffic_light": "green"
+      }
+    }
   },
-  "window_days": 250
+  "full_period": {
+    "start": "2022-01-03",
+    "end": "2025-12-31",
+    "days": 1000,
+    "historical": {
+      "firm": {
+        "exceptions": 3,
+        "expected": 2.5,
+        "kupiec_lr": 0.1,
+        "kupiec_p_value": 0.71,
+        "christoffersen_lr": 0.07,
+        "christoffersen_p_value": 0.79
+      }
+    },
+    "monte_carlo": {
+      "firm": {
+        "exceptions": 3,
+        "expected": 2.5,
+        "kupiec_lr": 0.1,
+        "kupiec_p_value": 0.71,
+        "christoffersen_lr": 0.07,
+        "christoffersen_p_value": 0.79
+      }
+    }
+  },
+  "limits": {
+    "period": [
+      "2022-01-03",
+      "2025-12-31"
+    ],
+    "days": 1000,
+    "quantile": 0.98,
+    "var_99_1d": {
+      "firm": {
+        "calibrated": 3000000.0,
+        "limit": 3000000.0,
+        "breach_days": 20,
+        "warning_days": 300,
+        "first_breach": "2023-12-20",
+        "last_breach": "2024-01-30"
+      }
+    },
+    "stress_loss": {
+      "firm": {
+        "calibrated": 25000000.0
+      }
+    }
+  }
 }

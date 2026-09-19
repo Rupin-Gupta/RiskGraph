@@ -33,6 +33,54 @@ def flatten(d: dict[str, Any], prefix: str = "") -> Iterator[tuple[str, Any]]:
             yield f"{prefix}{k}", v
 
 
+def render_flat(doc: dict[str, Any]) -> list[str]:
+    lines = ["| Metric | Value |", "|---|---|"]
+    return lines + [f"| {k} | {json.dumps(v)} |" for k, v in flatten(doc)]
+
+
+def render_backtest(doc: dict[str, Any]) -> list[str]:
+    """VaR backtest tables: last-250-day window, full period, and limit history."""
+    lines = []
+    for key, zones in (("window", True), ("full_period", False)):
+        b = doc[key]
+        label = "Basel window" if zones else "Full period"
+        head = "| Method | Scope | Exceptions | Expected | Kupiec p | Christoffersen p |"
+        lines += [
+            f"**{label}:** {b['start']} to {b['end']} ({b['days']} days), 99% 1-day VaR vs "
+            "hypothetical P&L.",
+            "",
+            head + (" Traffic light |" if zones else ""),
+            "|---|---|---|---|---|---|" + ("---|" if zones else ""),
+        ]
+        for method, name in (("historical", "Historical"), ("monte_carlo", "Monte Carlo")):
+            for scope, r in b[method].items():
+                row = (
+                    f"| {name} | {scope} | {r['exceptions']} | {r['expected']} | "
+                    f"{r['kupiec_p_value']:.3f} | {r['christoffersen_p_value']:.3f} |"
+                )
+                lines.append(row + (f" {r['traffic_light']} |" if zones else ""))
+        lines.append("")
+    lim = doc["limits"]
+    lines += [
+        f"**Limits:** {lim['period'][0]} to {lim['period'][1]} ({lim['days']} run dates), "
+        f"calibrated at the {lim['quantile']} quantile.",
+        "",
+        "| Limit | Scope | Limit (USD) | Breach days | Warning days | First breach | Last breach |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for metric in ("var_99_1d", "stress_loss"):
+        for scope, r in lim[metric].items():
+            if "limit" in r:
+                lines.append(
+                    f"| {metric} | {scope} | {r['limit']:,.0f} | {r['breach_days']} | "
+                    f"{r['warning_days']} | {r['first_breach']} | {r['last_breach']} |"
+                )
+    return lines
+
+
+RENDERERS = {"backtest.json": render_backtest}
+
+
 def render(metrics_dir: Path = METRICS) -> str:
     lines = [
         "# Results",
@@ -45,8 +93,9 @@ def render(metrics_dir: Path = METRICS) -> str:
         if not files:
             lines.append("TBD")
         for f in files:
-            lines += [f"Source: `{f.name}`", "", "| Metric | Value |", "|---|---|"]
-            lines += [f"| {k} | {json.dumps(v)} |" for k, v in flatten(json.loads(f.read_text()))]
+            doc = json.loads(f.read_text())
+            lines += [f"Source: `{f.name}`", ""]
+            lines += RENDERERS.get(f.name, render_flat)(doc)
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 

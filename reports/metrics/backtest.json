@@ -1,0 +1,208 @@
+{
+  "window": {
+    "start": "2025-09-17",
+    "end": "2026-09-17",
+    "days": 250,
+    "historical": {
+      "fx": {
+        "exceptions": 0,
+        "expected": 2.5,
+        "kupiec_lr": 5.0252,
+        "kupiec_p_value": 0.024982,
+        "christoffersen_lr": 0.0,
+        "christoffersen_p_value": 1.0,
+        "traffic_light": "green"
+      },
+      "rates": {
+        "exceptions": 1,
+        "expected": 2.5,
+        "kupiec_lr": 1.1765,
+        "kupiec_p_value": 0.278071,
+        "christoffersen_lr": 0.0081,
+        "christoffersen_p_value": 0.928444,
+        "traffic_light": "green"
+      },
+      "equity_derivatives": {
+        "exceptions": 5,
+        "expected": 2.5,
+        "kupiec_lr": 1.9568,
+        "kupiec_p_value": 0.161855,
+        "christoffersen_lr": 0.2049,
+        "christoffersen_p_value": 0.650769,
+        "traffic_light": "yellow"
+      },
+      "firm": {
+        "exceptions": 1,
+        "expected": 2.5,
+        "kupiec_lr": 1.1765,
+        "kupiec_p_value": 0.278071,
+        "christoffersen_lr": 0.0081,
+        "christoffersen_p_value": 0.928444,
+        "traffic_light": "green"
+      }
+    },
+    "monte_carlo": {
+      "fx": {
+        "exceptions": 6,
+        "expected": 2.5,
+        "kupiec_lr": 3.5554,
+        "kupiec_p_value": 0.059354,
+        "christoffersen_lr": 0.2963,
+        "christoffersen_p_value": 0.586195,
+        "traffic_light": "yellow"
+      },
+      "rates": {
+        "exceptions": 5,
+        "expected": 2.5,
+        "kupiec_lr": 1.9568,
+        "kupiec_p_value": 0.161855,
+        "christoffersen_lr": 0.2049,
+        "christoffersen_p_value": 0.650769,
+        "traffic_light": "yellow"
+      },
+      "equity_derivatives": {
+        "exceptions": 4,
+        "expected": 2.5,
+        "kupiec_lr": 0.7691,
+        "kupiec_p_value": 0.380484,
+        "christoffersen_lr": 0.1306,
+        "christoffersen_p_value": 0.717792,
+        "traffic_light": "green"
+      },
+      "firm": {
+        "exceptions": 4,
+        "expected": 2.5,
+        "kupiec_lr": 0.7691,
+        "kupiec_p_value": 0.380484,
+        "christoffersen_lr": 0.1306,
+        "christoffersen_p_value": 0.717792,
+        "traffic_light": "green"
+      }
+    }
+  },
+  "full_period": {
+    "start": "2022-01-03",
+    "end": "2026-09-17",
+    "days": 1173,
+    "historical": {
+      "fx": {
+        "exceptions": 17,
+        "expected": 11.73,
+        "kupiec_lr": 2.1001,
+        "kupiec_p_value": 0.147288,
+        "christoffersen_lr": 5.2492,
+        "christoffersen_p_value": 0.021957
+      },
+      "rates": {
+        "exceptions": 13,
+        "expected": 11.73,
+        "kupiec_lr": 0.1342,
+        "kupiec_p_value": 0.714135,
+        "christoffersen_lr": 0.2916,
+        "christoffersen_p_value": 0.589174
+      },
+      "equity_derivatives": {
+        "exceptions": 12,
+        "expected": 11.73,
+        "kupiec_lr": 0.0062,
+        "kupiec_p_value": 0.937086,
+        "christoffersen_lr": 0.2483,
+        "christoffersen_p_value": 0.618289
+      },
+      "firm": {
+        "exceptions": 11,
+        "expected": 11.73,
+        "kupiec_lr": 0.0469,
+        "kupiec_p_value": 0.828616,
+        "christoffersen_lr": 0.2084,
+        "christoffersen_p_value": 0.64799
+      }
+    },
+    "monte_carlo": {
+      "fx": {
+        "exceptions": 25,
+        "expected": 11.73,
+        "kupiec_lr": 11.4485,
+        "kupiec_p_value": 0.000716,
+        "christoffersen_lr": 0.3421,
+        "christoffersen_p_value": 0.558621
+      },
+      "rates": {
+        "exceptions": 18,
+        "expected": 11.73,
+        "kupiec_lr": 2.9099,
+        "kupiec_p_value": 0.088037,
+        "christoffersen_lr": 0.5301,
+        "christoffersen_p_value": 0.466556
+      },
+      "equity_derivatives": {
+        "exceptions": 26,
+        "expected": 11.73,
+        "kupiec_lr": 13.0253,
+        "kupiec_p_value": 0.000307,
+        "christoffersen_lr": 1.1799,
+        "christoffersen_p_value": 0.277385
+      },
+      "firm": {
+        "exceptions": 22,
+        "expected": 11.73,
+        "kupiec_lr": 7.2224,
+        "kupiec_p_value": 0.0072,
+        "christoffersen_lr": 0.8032,
+        "christoffersen_p_value": 0.370146
+      }
+    }
+  },
+  "limits": {
+    "period": [
+      "2022-01-03",
+      "2025-12-31"
+    ],
+    "days": 995,
+    "quantile": 0.98,
+    "var_99_1d": {
+      "firm": {
+        "calibrated": 3060000.0,
+        "limit": 3060000.0,
+        "breach_days": 20,
+        "warning_days": 360,
+        "first_breach": "2023-12-20",
+        "last_breach": "2024-01-30"
+      },
+      "fx": {
+        "calibrated": 2180000.0,
+        "limit": 2180000.0,
+        "breach_days": 13,
+        "warning_days": 141,
+        "first_breach": "2023-11-28",
+        "last_breach": "2024-01-12"
+      },
+      "rates": {
+        "calibrated": 1630000.0,
+        "limit": 1630000.0,
+        "breach_days": 21,
+        "warning_days": 597,
+        "first_breach": "2022-03-02",
+        "last_breach": "2022-08-26"
+      },
+      "equity_derivatives": {
+        "calibrated": 1300000.0,
+        "limit": 1300000.0,
+        "breach_days": 22,
+        "warning_days": 15,
+        "first_breach": "2022-01-03",
+        "last_breach": "2022-02-23"
+      }
+    },
+    "stress_loss": {
+      "firm": {
+        "calibrated": 25300000.0,
+        "limit": 25300000.0,
+        "breach_days": 17,
+        "warning_days": 84,
+        "first_breach": "2022-01-03",
+        "last_breach": "2022-03-04"
+      }
+    }
+  }
+}

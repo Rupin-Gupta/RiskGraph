@@ -1,20 +1,30 @@
 # Risk limits in USD (SPEC §4.6). Utilization = metric / limit.
-# Values are null until phase 01a calibrates them so breaches are rare but do occur in
-# the history. The calibration is documented in docs/METHODOLOGY.md.
+# var_99_1d is the historical-simulation 1-day 99% VaR; stress_loss is the worst loss across
+# configs/scenarios.yaml. Limits are calibrated so breaches are rare but do occur in the
+# history: `riskgraph backtest` reports the `quantile` of each metric's daily history over the
+# calibration period (rounded to 3 significant figures) and the breach days under the limits
+# below. Method in docs/METHODOLOGY.md.
+
+calibration:
+  start: 2022-01-01
+  end: 2025-12-31
+  quantile: 0.98
 
 status_thresholds:
   warning: 0.90 # ok < 0.90 <= warning
   breach: 1.00 # warning < 1.00 <= breach
 
+# Calibrated 2026-09-19 from `riskgraph backtest --start 2022-01-01 --seed 42`
+# (reports/metrics/backtest.json -> limits.*.calibrated).
 var_99_1d:
-  firm: null
+  firm: 3060000
   desks:
-    fx: null
-    rates: null
-    equity_derivatives: null
+    fx: 2180000
+    rates: 1630000
+    equity_derivatives: 1300000
 
 stress_loss: # worst loss across configs/scenarios.yaml
-  firm: null
+  firm: 25300000
 
 pfe: # counterparty PFE limits, phase 06
   CP01: null
