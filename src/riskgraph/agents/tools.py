@@ -363,11 +363,23 @@ def approval_token(thread_id: str, incident_id: str) -> str:
 def send_escalation_email(
     incident_id: str, approval_token: str, *, thread_id: str, as_of_date: str, note: str
 ) -> Path:
-    """Phase 02 dispatch stub: write the approved note to data/runs/<date>/escalations/
-    <incident_id>.md instead of emailing (SES arrives in phase 03)."""
+    """Write the approved note to data/runs/<date>/escalations/<incident_id>.md (the audit copy)
+    and, with DISPATCH_MODE=ses, email it through SES from SES_SENDER to SES_RECIPIENT."""
     if not hmac.compare_digest(approval_token, globals()["approval_token"](thread_id, incident_id)):
         raise PermissionError("invalid approval token")
+    mode = os.environ.get("DISPATCH_MODE", "file")
+    if mode not in ("file", "ses"):
+        raise ValueError(f"DISPATCH_MODE must be file or ses, not {mode!r}")
     out = cli.RUNS / as_of_date / "escalations" / f"{incident_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(note.rstrip() + "\n")
+    if mode == "ses":
+        import boto3
+
+        subject = note.splitlines()[0].lstrip("# ").strip()
+        boto3.client("ses", region_name=os.environ.get("AWS_REGION")).send_email(
+            Source=os.environ["SES_SENDER"],
+            Destination={"ToAddresses": [os.environ["SES_RECIPIENT"]]},
+            Message={"Subject": {"Data": subject}, "Body": {"Text": {"Data": note}}},
+        )
     return out

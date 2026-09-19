@@ -214,3 +214,22 @@ Dependencies are approved per phase in SPEC §12; anything else needs explicit a
 - Latency includes rate-limiter waiting, so it measures throughput under the free tier, not model speed.
 - Google may use free-tier prompts to improve its products. All data here is synthetic.
 - Results are specific to the configured Gemini model, which every metrics file records.
+
+## ADR-013: API incident registry and daily-run semantics
+
+**Status:** Accepted (phase 03)
+
+**Context.** Phase 02 incidents are injected cases in `data/synthetic/incidents/`, and the investigation's state lives only in its LangGraph thread. The API has to turn a real daily run into incidents, list them, and resume them from a browser. The SPEC diagram (§2) investigates a "breach or warning", while the phase 03 prompt says "for any breach". On the base book, firm VaR is in warning on 360 of 995 backtest days (`reports/metrics/backtest.json`), and each investigation costs about 12 LLM requests out of a 500-per-day free quota (ADR-012).
+
+**Decision.**
+- A new `incidents` table, owned by the API module, holds `incident_id`, `thread_id`, `as_of_date`, `run_id`, scope, metric, status, and reason. No existing table changes. The thread (PostgresSaver) still holds the report and the pending interrupt; the API resumes it with the existing `resume()` command.
+- `POST /runs/daily` investigates **breaches only**. Warnings stay visible on the Risk page.
+- The incident ID is `INC-<YYYYMMDD>-<scope>-<metric>`, so rerunning a date is idempotent. Only incidents whose investigation failed are retried, on a fresh thread.
+- Without a `date`, the endpoint refreshes market data (`riskgraph data download --refresh`) and runs the panel's latest date. This is the scheduler's path.
+- The risk run is synchronous (about 3 s). Investigations run in a FastAPI background task, one after another, behind the shared rate limiter. An API restart marks unfinished investigations `failed`, so the next run of the date retries them.
+- A send that fails after approval leaves the thread at `dispatch` with status `dispatch_failed`. Approving again retries the send from the checkpoint, reusing the approved report and token.
+- Dispatch always writes the Markdown audit copy. `DISPATCH_MODE=ses` also emails it through SES.
+
+**Alternatives.** Listing incidents by scanning checkpoints (no status index, slow). Investigating warnings as well (quota). A task queue such as Celery (a new dependency and service for one sequential job).
+
+**Consequences.** One API worker runs the investigations, so a burst of breaches is worked through serially. Incidents created with the CLI (`riskgraph investigate`) are not in the registry and do not appear in the dashboard.
