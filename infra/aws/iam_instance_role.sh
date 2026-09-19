@@ -7,6 +7,9 @@ source "$(dirname "$0")/common.sh"
 : "${SES_SENDER:?set SES_SENDER in .env}" "${SES_RECIPIENT:?set SES_RECIPIENT in .env}"
 
 role="$NAME-ec2"
+# One entry per verified address (the sender and the recipient are often the same mailbox).
+ses_arns="$(printf 'arn:aws:ses:%s:%s:identity/%s\n' "$REGION" "$ACCOUNT" "$SES_SENDER" \
+    "$REGION" "$ACCOUNT" "$SES_RECIPIENT" | sort -u | sed 's/.*/"&"/' | paste -sd, -)"
 policy="$(cat <<EOF
 {"Version": "2012-10-17", "Statement": [
  {"Sid": "EcrLogin", "Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
@@ -18,8 +21,7 @@ policy="$(cat <<EOF
   "Resource": ["arn:aws:secretsmanager:$REGION:$ACCOUNT:secret:$APP_SECRET-*",
                "arn:aws:secretsmanager:$REGION:$ACCOUNT:secret:$TOKEN_SECRET-*"]},
  {"Sid": "SendEscalations", "Effect": "Allow", "Action": ["ses:SendEmail", "ses:SendRawEmail"],
-  "Resource": ["arn:aws:ses:$REGION:$ACCOUNT:identity/$SES_SENDER",
-               "arn:aws:ses:$REGION:$ACCOUNT:identity/$SES_RECIPIENT"]},
+  "Resource": [$ses_arns]},
  {"Sid": "ListData", "Effect": "Allow", "Action": "s3:ListBucket",
   "Resource": ["arn:aws:s3:::$DATA_BUCKET", "arn:aws:s3:::$ARTIFACTS_BUCKET"]},
  {"Sid": "ReadData", "Effect": "Allow", "Action": "s3:GetObject",
