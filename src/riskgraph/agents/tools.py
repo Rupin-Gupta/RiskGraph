@@ -31,6 +31,7 @@ from riskgraph.marketdata.controls import cross_gap_bp
 from riskgraph.pricing.market import FACTORS
 from riskgraph.risk.var import SCOPES
 
+SNIPPET = 700  # characters of each retrieved section shown to the agent
 Search = Callable[[str, Mapping[str, str]], list[dict[str, Any]]]
 UNITS = (
     "USD unless the metric name says otherwise: sens_<factor> is USD P&L per +1% move (equities,"
@@ -259,9 +260,11 @@ def search_policy(
     if box.search is None:
         raise ToolError("policy search is not available")
     try:
-        return {"query": query, "results": box.search(query, dict(filters or {}))}
+        hits = box.search(query, dict(filters or {}))
     except ValueError as e:
         raise ToolError(str(e)) from None
+    # ponytail: excerpts bound the token budget; revisit with re-ranking in phase 05a
+    return {"query": query, "results": [h | {"text": h["text"][:SNIPPET]} for h in hits]}
 
 
 @dataclass(frozen=True)

@@ -33,7 +33,10 @@ _encode = threading.Lock()  # one encoder shared by parallel evaluation threads
 def _model() -> Any:
     from sentence_transformers import SentenceTransformer  # slow import, only when embedding
 
-    return SentenceTransformer(MODEL, device="cpu")
+    try:  # the cached copy, without a network round trip on every load
+        return SentenceTransformer(MODEL, device="cpu", local_files_only=True)
+    except OSError:  # first use: download it
+        return SentenceTransformer(MODEL, device="cpu")
 
 
 def embed(texts: Sequence[str], query: bool = False) -> npt.NDArray[np.float32]:

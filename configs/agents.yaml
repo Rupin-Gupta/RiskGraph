@@ -7,10 +7,12 @@
 # Free plan blocks Bedrock). provider: bedrock switches back to ChatBedrockConverse (ADR-009).
 llm:
   provider: openai_compatible # or bedrock
-  model_id: gemini-2.5-flash # LLM_MODEL_ID in the environment overrides it
+  # Free-tier limits for this key (AI Studio, 2026-09-19): 15 RPM, 250K TPM, 500 requests/day.
+  # Flash models allow only 20 requests/day; Gemma 4 31B failed with server errors.
+  model_id: gemini-3.5-flash-lite # LLM_MODEL_ID in the environment overrides it
   base_url: https://generativelanguage.googleapis.com/v1beta/openai/
   api_key_env: GEMINI_API_KEY
-  requests_per_minute: 10 # client-side limiter; set to the key's free-tier RPM in AI Studio
+  requests_per_minute: 14 # client-side limiter, just under the key's free-tier 15 RPM
   temperature: 0
   max_output_tokens: 4096 # per call, reasoning included
 
@@ -22,7 +24,7 @@ bedrock: # used when llm.provider is bedrock
 # are not billed, so their price is 0. Bedrock: ap-south-1 on-demand, AWS Price List API,
 # 2026-09-19.
 prices_per_mtok:
-  gemini-2.5-flash: {input: 0.0, output: 0.0}
+  gemini-3.5-flash-lite: {input: 0.0, output: 0.0}
   openai.gpt-oss-120b-1:0: {input: 0.18, output: 0.71}
 
 budget_per_incident: # exceeding either stops the run with status needs_human

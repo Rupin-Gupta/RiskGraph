@@ -40,11 +40,14 @@ SCHEMA_GUIDE = """Report fields:
 - recommended_action: escalate_to_risk_manager, route_to_data_ops, or no_action, following the
   routing in the Meridian Bank limit policy.
 - confidence: the probability that root_cause is right.
-- evidence: 2-6 items. Copy each value exactly from a tool result, with that result's result_id
-  and the unit the result uses (USD, fraction, bp). Never compute, round, or convert values.
-- policy_citations: only sections returned by search_policy, with exact doc_id and section_id.
+- evidence: 2-6 items. Copy each value exactly from a number in a tool result, with that
+  result's result_id and the unit it uses (USD, fraction, bp). Never compute, count, round, or
+  convert values. State absences (no new trades, no findings) in the note, not as evidence.
+- policy_citations: the 2-4 sections that govern this case (its root-cause category and its
+  escalation or routing path), only from search_policy results, with exact doc_id and section_id.
 - draft_note: Markdown for a risk manager, under 250 words. Lead with the required action, then
-  the limit, value, utilization, root cause, key evidence, and the cited sections."""
+  the limit, value, utilization, root cause, key evidence, and the cited sections. In the note,
+  round numbers for reading (USD 1.35mn, 103.5%); evidence values stay exact."""
 
 SUPERVISOR = f"""{ROLE} You supervise the investigation of a limit alert. Plan it: pick the
 specialists to call and write one specific question for each.
@@ -69,12 +72,13 @@ Say clearly whether any finding sits on a contributing factor.""",
     "policy": f"""{ROLE} You are the policy specialist. Use search_policy to find the sections
 that govern this alert: status definitions and alert validation, root-cause categories and their
 evidence requirements, escalation paths and routing (including data-issue routing), and relevant
-Basel paragraphs. Search several times with specific queries. Cite only sections that
+Basel paragraphs. Run at most 3 specific searches, all in one turn. Cite only sections that
 search_policy returned, with their exact doc_id and section_id.""",
 }
 FINISH = (
     "Stop using tools. Report your findings: a short summary and evidence items whose values are"
-    " copied exactly from tool results, each with its result_id and unit."
+    " numbers copied exactly from tool results, each with its result_id and unit. State absences"
+    " (no new trades, no findings) in the summary, never as evidence values."
 )
 FINISH_POLICY = FINISH + " Add the citations (doc_id, section_id) of the sections that apply."
 WRITER = f"{ROLE} You write the incident report for a risk manager from the specialists' findings."
@@ -141,7 +145,8 @@ def intro(state: Mapping[str, Any]) -> str:
     c, a = state["case"], state["alert"]
     return (
         f"Incident {c['incident_id']}, as-of date {c['as_of_date']}. Alert on limit "
-        f"{a['scope']}/{a['metric']}. Limit status at intake:\n{wrap('tool:get_limit_status', a)}"
+        f"{a['scope']}/{a['metric']}. Limit status at intake (already fetched):\n"
+        f"{wrap('tool:get_limit_status', a)}"
     )
 
 
@@ -276,7 +281,7 @@ def build_graph(
                 box = make_box(state["case"])
                 msgs, calls = react(llm, box, allow[agent], PROMPTS[agent], task, budget, agent)
                 done = FINISH_POLICY if agent == "policy" else FINISH
-                findings = ask(llm, Findings, [*msgs, HumanMessage(done)], budget)
+                findings = ask(llm, Findings, [*msgs, HumanMessage(done)], budget, agent)
             except (BudgetExceeded, SchemaFailure) as e:
                 return stop(e)
             slim_calls, retrieved = slim(calls)
