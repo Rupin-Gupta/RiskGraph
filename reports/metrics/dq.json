@@ -1,0 +1,126 @@
+{
+  "window": {
+    "start": "2022-01-01",
+    "end": "2025-12-31"
+  },
+  "corruptions": {
+    "total": 200,
+    "per_type": 40
+  },
+  "isolation_forest": {
+    "train_end": "2021-12-31",
+    "cutoff": 0.7438
+  },
+  "rules": {
+    "stale_run": {
+      "corruptions": 40,
+      "detected": 29,
+      "flags": 59,
+      "true_flags": 58,
+      "precision": 0.9831,
+      "recall": 0.725,
+      "f1": 0.8345
+    },
+    "spike_x10": {
+      "corruptions": 40,
+      "detected": 11,
+      "flags": 20,
+      "true_flags": 19,
+      "precision": 0.95,
+      "recall": 0.275,
+      "f1": 0.4265
+    },
+    "sign_flip": {
+      "corruptions": 40,
+      "detected": 40,
+      "flags": 51,
+      "true_flags": 50,
+      "precision": 0.9804,
+      "recall": 1.0,
+      "f1": 0.9901
+    },
+    "missing": {
+      "corruptions": 40,
+      "detected": 40,
+      "flags": 41,
+      "true_flags": 40,
+      "precision": 0.9756,
+      "recall": 1.0,
+      "f1": 0.9877
+    },
+    "decimal_shift": {
+      "corruptions": 40,
+      "detected": 40,
+      "flags": 81,
+      "true_flags": 80,
+      "precision": 0.9877,
+      "recall": 1.0,
+      "f1": 0.9938
+    },
+    "overall": {
+      "corruptions": 200,
+      "detected": 160,
+      "flags": 248,
+      "true_flags": 247,
+      "precision": 0.996,
+      "recall": 0.8,
+      "f1": 0.8873
+    }
+  },
+  "rules_iforest": {
+    "stale_run": {
+      "corruptions": 40,
+      "detected": 29,
+      "flags": 62,
+      "true_flags": 58,
+      "precision": 0.9355,
+      "recall": 0.725,
+      "f1": 0.8169
+    },
+    "spike_x10": {
+      "corruptions": 40,
+      "detected": 15,
+      "flags": 29,
+      "true_flags": 26,
+      "precision": 0.8966,
+      "recall": 0.375,
+      "f1": 0.5288
+    },
+    "sign_flip": {
+      "corruptions": 40,
+      "detected": 40,
+      "flags": 54,
+      "true_flags": 50,
+      "precision": 0.9259,
+      "recall": 1.0,
+      "f1": 0.9615
+    },
+    "missing": {
+      "corruptions": 40,
+      "detected": 40,
+      "flags": 45,
+      "true_flags": 41,
+      "precision": 0.9111,
+      "recall": 1.0,
+      "f1": 0.9535
+    },
+    "decimal_shift": {
+      "corruptions": 40,
+      "detected": 40,
+      "flags": 84,
+      "true_flags": 80,
+      "precision": 0.9524,
+      "recall": 1.0,
+      "f1": 0.9756
+    },
+    "overall": {
+      "corruptions": 200,
+      "detected": 162,
+      "flags": 256,
+      "true_flags": 253,
+      "precision": 0.9883,
+      "recall": 0.81,
+      "f1": 0.8903
+    }
+  }
+}

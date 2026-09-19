@@ -1,4 +1,4 @@
-.PHONY: setup lint test data results up down book db-migrate risk-run backtest
+.PHONY: setup lint test data results up down book db-migrate risk-run backtest eval-dq
 
 # Virtual uv project (ADR-002): the riskgraph package is imported from src/.
 export PYTHONPATH := src
@@ -35,6 +35,9 @@ risk-run: db-migrate
 
 backtest:
 	uv run python -m riskgraph.cli backtest --start 2022-01-01
+
+eval-dq:
+	uv run python -m riskgraph.eval.dq --seed 42
 
 up:
 	docker compose up -d --wait
