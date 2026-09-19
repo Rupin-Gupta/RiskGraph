@@ -30,8 +30,8 @@ db-migrate:
 	uv run python -m riskgraph.db.migrate
 
 risk-run: db-migrate
-	$(if $(DATE),,$(error usage: make risk-run DATE=YYYY-MM-DD))
-	uv run python -m riskgraph.cli run-daily --date $(DATE)
+	$(if $(DATE),,$(error usage: make risk-run DATE=YYYY-MM-DD [MARKET=override.parquet]))
+	uv run python -m riskgraph.cli run-daily --date $(DATE) $(if $(MARKET),--market-override $(MARKET))
 
 backtest:
 	uv run python -m riskgraph.cli backtest --start 2022-01-01

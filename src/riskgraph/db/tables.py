@@ -1,4 +1,5 @@
-"""Postgres tables for daily risk results (SPEC §4.8) and the run writer.
+"""Postgres tables for daily risk results (SPEC §4.8), data-quality findings (SPEC §5), and
+the run writer.
 
 Rows carry a run_id: the date for a base run, date+<hash> for a run with overrides, so
 incident runs never overwrite the base run for the same date (ADR-006).
@@ -7,7 +8,7 @@ incident runs never overwrite the base run for the same date (ADR-006).
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 from urllib.parse import quote_plus
@@ -65,6 +66,18 @@ limit_status = Table(
     UniqueConstraint("run_id", "scope", "metric"),
 )
 
+# Market data control findings (SPEC §5). date is the market data date the finding is about.
+dq_findings = Table(
+    "dq_findings",
+    metadata,
+    *_common(),
+    Column("factor", String, nullable=False),  # panel series, e.g. SPY or DGS10
+    Column("check", String, nullable=False),  # pandera:<rule> | staleness | cross_source | ...
+    Column("severity", String, nullable=False),  # critical | warning
+    Column("detail", String, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
 
 def database_url() -> str:
     """DATABASE_URL, else the local Compose Postgres using POSTGRES_PASSWORD. Never log it."""
@@ -89,8 +102,22 @@ def write_run(
     limit_rows: Sequence[dict[str, Any]],
 ) -> None:
     """Replace this run_id's rows in both tables in one transaction (reruns are idempotent)."""
+    replace_rows(
+        engine,
+        run_id,
+        {
+            risk_results: [r | {"date": day} for r in risk_rows],
+            limit_status: [r | {"date": day} for r in limit_rows],
+        },
+    )
+
+
+def replace_rows(
+    engine: Engine, run_id: str, tables: Mapping[Table, Sequence[dict[str, Any]]]
+) -> None:
+    """Replace this run_id's rows in each table in one transaction. Rows carry their date."""
     with engine.begin() as conn:
-        for table, rows in ((risk_results, risk_rows), (limit_status, limit_rows)):
+        for table, rows in tables.items():
             conn.execute(delete(table).where(table.c.run_id == run_id))
             if rows:
-                conn.execute(insert(table), [r | {"run_id": run_id, "date": day} for r in rows])
+                conn.execute(insert(table), [r | {"run_id": run_id} for r in rows])

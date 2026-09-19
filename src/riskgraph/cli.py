@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
@@ -17,7 +18,8 @@ from dotenv import load_dotenv
 from fredapi import Fred
 
 from riskgraph.book.generate import generate, load_book, save_book
-from riskgraph.db.tables import get_engine, write_run
+from riskgraph.db.tables import dq_findings, get_engine, replace_rows, write_run
+from riskgraph.marketdata.controls import critical_factors, fit_forest, run_controls
 from riskgraph.risk.backtest import history, report
 from riskgraph.risk.daily import Configs, run
 from riskgraph.risk.factors import RiskContext
@@ -137,12 +139,17 @@ def configs() -> Configs:
     return Configs(load_yaml("risk"), load_yaml("limits"), load_yaml("scenarios"))
 
 
-def risk_context(market_override: Path | None = None) -> RiskContext:
-    """Panel -> gap policy -> factor shocks. Non-missing override values replace the panel's."""
+def market_panel(market_override: Path | None = None) -> pd.DataFrame:
+    """The processed panel. Non-missing override values replace the panel's."""
     panel = pd.read_parquet(PANEL)
     if market_override is not None:
         panel = pd.read_parquet(market_override).combine_first(panel)
-    return RiskContext.from_panel(panel, load_yaml("risk"))
+    return panel
+
+
+def risk_context(market_override: Path | None = None) -> RiskContext:
+    """Panel -> gap policy -> factor shocks."""
+    return RiskContext.from_panel(market_panel(market_override), load_yaml("risk"))
 
 
 def write_json(path: Path, doc: Any) -> None:
@@ -174,34 +181,55 @@ def run_daily(
             help="Parquet on the panel's date index; non-missing values replace the panel's."
         ),
     ] = None,
-    seed: int = typer.Option(42, help="Monte Carlo seed (combined with the date)."),
-    db: bool = typer.Option(True, help="Write risk_results and limit_status to Postgres."),
+    seed: int = typer.Option(42, help="Monte Carlo (with the date) and Isolation Forest seed."),
+    db: bool = typer.Option(
+        True, help="Write dq_findings, risk_results, and limit_status to Postgres."
+    ),
 ) -> None:
-    """Daily risk run: VaR/ES, sensitivities, stress, limits, VaR explain (SPEC §4.8)."""
+    """Daily risk run: data controls, then VaR/ES, sensitivities, stress, limits, VaR explain
+    (SPEC §4.8, §5). Risk factors with a critical finding on the date are held flat."""
     load_dotenv()
     cfgs = configs()
-    base = load_book(BOOK)
-    book = load_book(book_override) if book_override else base
-    result = run(risk_context(market_override), book, base, pd.Timestamp(day), cfgs, seed)
-
     overrides = [p for p in (book_override, market_override) if p is not None]
     digest = hashlib.sha256(b"".join(p.read_bytes() for p in overrides)).hexdigest()[:8]
     run_id = f"{day}+{digest}" if overrides else day
+    engine = get_engine() if db else None
+
+    # Controls first, and their findings are stored before the engine runs: a run that fails
+    # on bad data still leaves its evidence.
+    panel = market_panel(market_override)
+    cc = cfgs.risk["controls"]
+    findings = run_controls(panel, cc, fit_forest(panel, cc, seed), dates=[pd.Timestamp(day)])
+    excluded = critical_factors(findings)
+    if engine is not None:
+        rows = findings.assign(date=findings["date"].dt.date).to_dict("records")
+        replace_rows(engine, run_id, {dq_findings: rows})
+
+    base = load_book(BOOK)
+    book = load_book(book_override) if book_override else base
+    ctx = replace(RiskContext.from_panel(panel, cfgs.risk), excluded=tuple(excluded))
+    result = run(ctx, book, base, pd.Timestamp(day), cfgs, seed)
+
     config = {"date": day, "seed": seed, "panel": PANEL, "book": BOOK}
     config |= {"book_override": book_override, "market_override": market_override}
     config |= {"risk": cfgs.risk, "limits": cfgs.limits, "scenarios": cfgs.scenarios}
+    records = findings.assign(date=findings["date"].dt.strftime("%Y-%m-%d")).to_dict("records")
+    controls = {"findings": records, "excluded_factors": excluded}
     out = RUNS / run_id / "run.json"
-    write_json(out, {"run_id": run_id, "config": config} | result)
-    if db:
+    write_json(out, {"run_id": run_id, "config": config, "controls": controls} | result)
+    if engine is not None:
         rows = [
             {"desk": s, "metric": m, "value": v}
             for s, metrics in result["metrics"].items()
             for m, v in metrics.items()
         ]
-        write_run(get_engine(), run_id, date.fromisoformat(day), rows, result["limits"])
+        write_run(engine, run_id, date.fromisoformat(day), rows, result["limits"])
 
     dropped = result["market"]["dropped_dates"]
     typer.echo(f"run {run_id}: {len(dropped)} dates dropped from the VaR window (gap policy)")
+    for r in controls["findings"]:
+        typer.echo(f"  finding {r['factor']} {r['check']} ({r['severity']}): {r['detail']}")
+    typer.echo(f"  held flat (critical findings): {', '.join(excluded) or 'none'}")
     for s, m in result["metrics"].items():
         typer.echo(
             f"  {s:<19} VaR99 HS {m['var_99_1d_hs']:>12,.0f}  MC {m['var_99_1d_mc']:>12,.0f}"
