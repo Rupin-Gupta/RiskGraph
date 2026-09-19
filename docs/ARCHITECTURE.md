@@ -89,6 +89,51 @@ Every successful call is logged to `tool_results` under `result_id = "R" + sha25
 - The CLI uses `PostgresSaver`, so a paused incident survives a process restart. `riskgraph investigate --incident INC-001 --variant multi` pauses; `riskgraph approve --thread <id> --decision approve|reject [--edits note.md]` resumes it. The evaluation uses an in-memory checkpointer.
 - Langfuse tracing turns on when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Traces are tagged `incident_id:`, `variant:`, and `split:`, with the thread ID as the session.
 
+## API and dashboard (phase 03)
+
+`src/riskgraph/api/app.py` is a FastAPI service over the same runtime the CLI uses.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /runs/daily` | Bearer-token protected. Runs the market data controls and the risk engine for a date (or refreshes market data and uses the panel's latest date), registers an incident per **breach**, and investigates each one in a background task |
+| `GET /risk/summary?date=` | Desk VaR and ES by method, limit utilization, and the VaR backtest window |
+| `GET /limits?date=` | Limit status rows for a base run |
+| `GET /incidents`, `GET /incidents/{id}` | The queue, and one incident with its report, evidence (with the tool behind each value), citations, critic result, and Langfuse link |
+| `POST /incidents/{id}/approve`, `/reject` | Resume the paused thread. Approval issues the HMAC dispatch token; rejection closes the incident with a reason |
+| `GET /health` | Liveness plus a database check |
+
+Incidents live in an `incidents` table owned by the API (ADR-013); the investigation's state stays in its LangGraph thread, so approve and reject resume exactly the paused run. The dashboard (`frontend/`, Next.js static export) has three pages — risk, incident queue, incident detail with the approval form — and is served by nginx, which also proxies `/api`.
+
 ## Deployment
 
-Local only in phase 02: `docker compose up` runs Postgres 16 and Weaviate (vectors supplied by the app, both bound to localhost). AWS deployment arrives in phase 03.
+Locally, `make up` runs the whole stack: Postgres, Weaviate, the API, and the dashboard on <http://localhost:3000>.
+
+On AWS (SPEC §13.2, ADR-014) the same images run on one EC2 instance behind an nginx proxy that terminates TLS and requires basic auth:
+
+```mermaid
+flowchart TB
+    subgraph GH[GitHub]
+        A[Actions on push to main] -- OIDC role, no static keys --> ECR[(ECR: api, frontend)]
+        A -- SSM Run Command --> D[deploy.sh on the host]
+    end
+    subgraph AWS[AWS ap-south-1]
+        S[EventBridge Scheduler<br/>weekdays 18:00 IST] --> L[Lambda trigger]
+        L -- "POST /api/runs/daily<br/>token from Secrets Manager" --> P
+        subgraph EC2[EC2 m7i-flex.large, Elastic IP]
+            P[nginx proxy<br/>TLS + basic auth] --> F[frontend nginx<br/>static export]
+            F -- /api --> API[FastAPI + agents]
+            API --> PG[(Postgres:<br/>results, incidents,<br/>checkpoints)]
+            API --> W[(Weaviate:<br/>policy chunks)]
+        end
+        API -- approved note --> SES[SES email]
+        API -- logs --> CW[CloudWatch Logs<br/>failed-run alarm]
+        SM[Secrets Manager] -. .env at deploy .-> API
+        S3[(S3: DVC data,<br/>MLflow artifacts)] -. dvc pull .-> API
+    end
+    U[Risk manager<br/>browser] -- HTTPS + basic auth --> P
+    ECR -. docker compose pull .-> API
+```
+
+- **Images:** `Dockerfile` (API, CPU torch, the bge-small model baked in) and `frontend/Dockerfile` (node build, then nginx). `docker-compose.prod.yml` swaps in the ECR images, adds the proxy, drops the database ports, and sends logs to CloudWatch with the `awslogs` driver.
+- **Secrets** never sit in the repo or the images. `infra/aws/deploy.sh` renders `.env` on the host from Secrets Manager on every deploy.
+- **Scripts:** one per resource in `infra/aws/`, each printing its plan and monthly cost and changing nothing without `--apply` (`make aws-plan` shows them all). `make aws-stop` and `make aws-start` control the only meaningful running cost.

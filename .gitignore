@@ -17,3 +17,8 @@ data/runs/
 
 # Downloaded Basel Framework HTML (fetched by corpus/download.py, not committed)
 corpus/raw/
+
+# Written on the deployed host (basic auth file, TLS certificate, ACME webroot)
+/htpasswd
+/certs/
+/certbot-www/

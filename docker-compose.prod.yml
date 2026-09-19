@@ -35,14 +35,18 @@ services:
     restart: unless-stopped
     logging: *logging
 
-  # Basic auth in front of everything except the scheduler's token-protected trigger.
+  # TLS and basic auth in front of everything except the scheduler's token-protected trigger.
+  # certs/ and htpasswd are written by infra/aws/bootstrap.sh and infra/aws/cert.sh.
   proxy:
     image: nginx:stable-alpine
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./infra/nginx/proxy.conf:/etc/nginx/conf.d/default.conf:ro
-      - ${HTPASSWD_FILE:-/opt/riskgraph/htpasswd}:/etc/nginx/htpasswd:ro
+      - ./htpasswd:/etc/nginx/htpasswd:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./certbot-www:/var/www/certbot:ro
     depends_on:
       - frontend
     restart: unless-stopped

@@ -1,5 +1,5 @@
 .PHONY: setup lint test data results up down book db-migrate risk-run backtest eval-dq \
-	incidents rag-index eval-agents
+	incidents rag-index eval-agents data-pull aws-plan aws-start aws-stop
 
 # Virtual uv project (ADR-002): the riskgraph package is imported from src/.
 export PYTHONPATH := src
@@ -16,10 +16,17 @@ lint:
 test:
 	uv run pytest
 
+# DVC's S3 extra pins botocore against boto3's own pin, so S3 pushes and pulls run in an
+# isolated uvx environment instead of the project environment (ADR-014).
+DVC_S3 = uvx --from 'dvc[s3]>=3.67.1' dvc
+
 data:
 	uv run python -m riskgraph.cli data download
 	uv run dvc add data/raw data/processed
-	uv run dvc push
+	$(DVC_S3) push
+
+data-pull:
+	$(DVC_S3) pull
 
 results:
 	uv run python scripts/make_results.py
@@ -57,3 +64,15 @@ up:
 
 down:
 	docker compose down
+
+# Print every AWS script's plan and cost without changing anything in AWS.
+AWS_SCRIPTS = s3_buckets ecr_repos cloudwatch secrets security_group elastic_ip \
+	iam_instance_role ec2_instance github_oidc lambda_trigger scheduler
+aws-plan:
+	@for s in $(AWS_SCRIPTS); do bash infra/aws/$$s.sh || true; done
+
+aws-start:
+	bash infra/aws/instance_state.sh start --apply
+
+aws-stop:
+	bash infra/aws/instance_state.sh stop --apply

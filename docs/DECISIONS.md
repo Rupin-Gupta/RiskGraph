@@ -233,3 +233,27 @@ Dependencies are approved per phase in SPEC §12; anything else needs explicit a
 **Alternatives.** Listing incidents by scanning checkpoints (no status index, slow). Investigating warnings as well (quota). A task queue such as Celery (a new dependency and service for one sequential job).
 
 **Consequences.** One API worker runs the investigations, so a burst of breaches is worked through serially. Incidents created with the CLI (`riskgraph investigate`) are not in the registry and do not appear in the dashboard.
+
+## ADR-014: AWS deployment on one instance
+
+**Status:** Accepted (phase 03). Amends the EC2, Bedrock, and TLS lines of SPEC §13.2.
+
+**Context.** The account is on the AWS Free plan: $139.79 of credits, expiring 2026-11-14, and only free-tier-eligible EC2 instance types. The SPEC picks `t3.large`, which is not one of them. Bedrock is unusable on this plan (ADR-012), so the agents call the Gemini API. Basic auth over plain HTTP would put the demo password and the scheduler's token on the wire in the clear, and the project has no domain name.
+
+**Decision.**
+- **Instance:** one `m7i-flex.large` (2 vCPU, 8 GB, free-tier eligible, $0.1008/hour in `ap-south-1`) instead of `t3.large` (not eligible, $0.0896/hour), on Ubuntu 24.04 with a 30 GB encrypted gp3 root volume and IMDSv2 required (hop limit 2, so containers can use the role). 8 GB is the floor for Postgres, Weaviate, and the API's CPU torch together.
+- **TLS:** a Let's Encrypt certificate for the **Elastic IP itself**, issued with the `shortlived` profile (about 6 days) that supports IP identifiers, renewed by certbot ≥ 5.4 through the webroot the proxy serves. `sslip.io` was rejected: it is not on the Public Suffix List, so every user of it shares one Let's Encrypt rate limit. Certbot renews at half the lifetime, roughly two certificates a week, inside the limit of five.
+- **No inbound SSH.** Port 22 stays closed and shell access goes through SSM Session Manager, which the instance role already allows. Only 80 (redirect and ACME) and 443 are open.
+- **No Bedrock permission** on the instance role. `GEMINI_API_KEY` comes from Secrets Manager instead.
+- **Two secrets:** `riskgraph/app` (a JSON blob the host renders into `.env`) and `riskgraph/api-token`, so the trigger Lambda can read the token without seeing the model and Langfuse keys. $0.80/month.
+- **Scheduling is trigger-only.** EventBridge Scheduler invokes the Lambda on weekdays at 18:00 IST; the Lambda checks the instance state first and returns a skip, not an error, when it is stopped, so `make aws-stop` never fires the alarm.
+- **Every script is plan-by-default.** `infra/aws/*.sh` prints what it would create and its monthly cost and exits; `--apply` is what changes anything. `make aws-plan` prints them all.
+- **DVC's S3 extra runs through `uvx`.** `dvc[s3]` pins `botocore` through `aiobotocore` in a range that contradicts the `boto3` this project already uses, so the lockfile keeps plain `dvc` and S3 transfers use an isolated environment (`make data`, `make data-pull`, and the host bootstrap).
+
+**Alternatives.** `t3.large` (likely refused by the Free plan). `c7i-flex.large` (eligible but 4 GB, too small). HTTP-only with basic auth (credentials in the clear). A self-signed certificate (browser warnings on a portfolio link). A registered domain (a yearly cost, and not needed for an IP certificate). A NAT gateway, load balancer, or RDS (all forbidden by the cost rules).
+
+**Consequences.**
+- The site is `https://<elastic-ip>`, which is trusted but not a memorable name. Moving to a domain later only changes the certificate step.
+- The Elastic IP costs $3.65/month even while the instance is stopped; the EBS volume adds $2.74. Idle cost is therefore about $6.40/month, and running costs about $2.42/day.
+- If the instance stays stopped for more than about six days the certificate expires; the renewal cron runs at boot as well, so the first start refreshes it.
+- Results and behavior are unchanged from the local stack: the same images run in both places.
