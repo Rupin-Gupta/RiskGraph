@@ -98,6 +98,8 @@ def test_shocks_revalue_all_scenarios_at_once() -> None:
     shocks[2, [IDX["DGS2"], IDX["DGS5"], IDX["DGS10"]]] = 100.0  # curve +100bp
     pnl = revalue(pos, apply_shocks(STATE, shocks)) - revalue(pos, STATE)
     assert pnl.shape == (3, len(BOOK))
-    np.testing.assert_allclose(pnl[0], 0.0, atol=1e-9)
+    # Swap PV is a difference of legs worth millions: rounding there is ~1e-9 USD and varies
+    # by platform, so zero P&L is checked to a micro-dollar.
+    np.testing.assert_allclose(pnl[0], 0.0, atol=1e-6)
     assert pnl[1, 0] == pytest.approx(-2e5)  # short 2M of MSFT loses 10%
     assert pnl[2, 4] < 0 < pnl[2, 3]  # long bond loses, payer swap gains
