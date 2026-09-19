@@ -1,7 +1,8 @@
 """Risk-factor shocks, gap policy, EWMA covariance, and daily market states (SPEC §4.2-§4.3).
 
-Gap policy (until phase 01b controls): a date is used only if every risk factor is observed.
-Incomplete dates are dropped, so the next shock spans the gap. Dropped dates are reported.
+Gap policy: a date is used only if every risk factor is observed. Incomplete dates are
+dropped, so the next shock spans the gap. Dropped dates are reported. Missed prints are also
+flagged by the market data controls (marketdata/controls.py).
 """
 
 from __future__ import annotations
@@ -39,7 +40,8 @@ class RiskContext:
 
     levels: complete dates only, panel units (yields in percent). shocks: row d is the move
     from the previous complete date to d (log returns; bp for yields). dropped: panel dates
-    removed by the gap policy.
+    removed by the gap policy. excluded: factors with a critical data-quality finding on the
+    run date, held flat (zero shock) in every scenario; their levels are not altered.
     """
 
     levels: pd.DataFrame
@@ -48,6 +50,7 @@ class RiskContext:
     window: int
     ewma_lambda: float
     foreign_rates: dict[str, float]
+    excluded: tuple[str, ...] = ()
 
     @classmethod
     def from_panel(cls, panel: pd.DataFrame, risk_cfg: Mapping[str, Any]) -> RiskContext:
@@ -67,12 +70,18 @@ class RiskContext:
             foreign_rates=dict(risk_cfg["fx_forward"]["foreign_rate_proxy"]),
         )
 
-    def window_shocks(self, day: pd.Timestamp) -> FloatArray:
+    def observed_window(self, day: pd.Timestamp) -> FloatArray:
         """The `window` most recent daily shocks up to and including `day`, oldest first."""
         s = self.shocks.loc[:day]
         if len(s) < self.window:
             raise ValueError(f"{day:%Y-%m-%d}: {len(s)} shocks available, {self.window} needed")
-        out: FloatArray = s.to_numpy(dtype=np.float64)[-self.window :]
+        out: FloatArray = s.to_numpy(dtype=np.float64, copy=True)[-self.window :]
+        return out
+
+    def window_shocks(self, day: pd.Timestamp) -> FloatArray:
+        """Scenario shocks: the observed window with excluded factors held flat."""
+        out = self.observed_window(day)
+        out[:, [IDX[f] for f in self.excluded]] = 0.0
         return out
 
     def window_start(self, day: pd.Timestamp) -> pd.Timestamp:
@@ -92,12 +101,15 @@ class RiskContext:
         return pd.Timestamp(self.levels.index[i - 1])
 
     def state(self, day: pd.Timestamp) -> MarketState:
-        """Market state on a complete date, with EWMA vols for single-stock options."""
+        """Market state on a complete date, with EWMA vols for single-stock options.
+
+        Vols come from observed shocks, so holding a factor flat does not change its vol.
+        """
         if day not in self.levels.index:
             raise ValueError(f"{day:%Y-%m-%d}: no complete market data (gap policy)")
         row = self.levels.loc[day].to_numpy(dtype=np.float64, copy=True)
         row[[IDX[f] for f in CURVE]] /= 100
-        cov = ewma_cov(self.window_shocks(day), self.ewma_lambda)
+        cov = ewma_cov(self.observed_window(day), self.ewma_lambda)
         vols = {u: float(np.sqrt(TRADING_DAYS * cov[IDX[u], IDX[u]])) for u in EQUITIES[1:]}
         return MarketState(day.date(), row[None, :], vols, self.foreign_rates)
 

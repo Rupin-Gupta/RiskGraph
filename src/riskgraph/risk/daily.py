@@ -85,7 +85,12 @@ def mc_var(
     """
     cov = ewma_cov(h.shocks, float(cfg["ewma_lambda"]))
     rng = np.random.default_rng([seed, h.state.date.toordinal()])
-    shocks = mc_shocks(cov, int(cfg["monte_carlo"]["n_scenarios"]), rng)
+    # Factors held flat have zero variance, which Cholesky rejects: draw the live block only.
+    # With every factor live this is exactly mc_shocks(cov, n, rng).
+    live = np.flatnonzero(cov.diagonal() > 0)
+    n = int(cfg["monte_carlo"]["n_scenarios"])
+    shocks = np.zeros((n, len(cov)))
+    shocks[:, live] = mc_shocks(cov[np.ix_(live, live)], n, rng)
     scope_pnl = scenario_pnl(h.pos, h.state, shocks) @ h.scope_m
     return [var_es(scope_pnl[:, j], var_conf, es_conf) for j in range(len(SCOPES))]
 

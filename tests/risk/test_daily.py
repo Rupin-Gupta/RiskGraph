@@ -1,12 +1,15 @@
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 import yaml
 
 from riskgraph.book.generate import generate
 from riskgraph.book.schema import Trade
+from riskgraph.pricing.market import IDX
 from riskgraph.risk.backtest import history, report
 from riskgraph.risk.daily import Configs, run
 from riskgraph.risk.factors import RiskContext
@@ -68,6 +71,25 @@ def test_unchanged_book_has_only_a_market_effect(setup: tuple) -> None:
         *((s, "var_99_1d") for s in SCOPES),
         ("firm", "stress_loss"),
     }
+
+
+def test_excluded_factors_are_held_flat(setup: tuple) -> None:
+    ctx, book, day = setup
+    flat = replace(ctx, excluded=("SPY", "AAPL"))
+    cols = [IDX["SPY"], IDX["AAPL"]]
+    assert not flat.window_shocks(day)[:, cols].any()
+    assert ctx.window_shocks(day)[:, cols].all()  # the observed shocks are not modified
+    assert flat.state(day).equity_vol == ctx.state(day).equity_vol  # vols from observed moves
+
+    out, base = run(flat, book, book, day, CFGS, seed=42), run(ctx, book, book, day, CFGS, seed=42)
+    m, b = out["metrics"], base["metrics"]
+    assert m["fx"]["var_99_1d_hs"] == b["fx"]["var_99_1d_hs"]
+    assert m["equity_derivatives"]["var_99_1d_hs"] != b["equity_derivatives"]["var_99_1d_hs"]
+    assert np.isfinite(m["firm"]["var_99_1d_mc"])  # Cholesky of the live block only
+    assert m["equity_derivatives"]["sens_SPY"] == b["equity_derivatives"]["sens_SPY"]
+    top = out["explain"]["equity_derivatives"]["top_factors"]
+    contrib = {r["factor"]: r["contribution"] for r in top}
+    assert contrib["SPY"] == contrib["AAPL"] == 0.0
 
 
 def test_backtest_history_and_report(setup: tuple) -> None:

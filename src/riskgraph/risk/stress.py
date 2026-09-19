@@ -44,6 +44,7 @@ def run_stress(
     out: dict[str, dict[str, Any]] = {}
     for name, sc in cfg["historical"].items():
         days = ctx.shocks.loc[str(sc["window"][0]) : str(sc["window"][1])]
+        days = days.assign(**dict.fromkeys(ctx.excluded, 0.0))  # excluded factors held flat
         if sc["select"] == "worst_firm_pnl_day":
             firm = scenario_pnl(pos, state, days.to_numpy()) @ scope_m[:, -1]
             i = int(np.argmin(firm))
