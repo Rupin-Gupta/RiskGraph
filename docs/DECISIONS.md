@@ -187,3 +187,28 @@ Dependencies are approved per phase in SPEC §12; anything else needs explicit a
 **Consequences.**
 - The critic's rule checks use engine outputs directly, so the multi-agent variant gets deterministic corrections the baseline does not. That is the design being compared (SPEC §10.9), and it is stated next to every result.
 - Numeric faithfulness is scored by a separate checker that re-executes tools, so a critic bug cannot inflate it.
+
+## ADR-012: Gemini API free tier instead of Bedrock
+
+**Status:** Accepted (phase 02). Supersedes the model choice in ADR-009 and changes the LLM line of ADR-001.
+
+**Context.** The AWS account is on the AWS Free plan. Its applied Bedrock quotas are 0 and marked not adjustable, while the AWS defaults are 100M tokens/min for gpt-oss-120b. Lifting that requires upgrading to a paid plan, which the owner declined. The owner wants a hosted model at no cost. Free tiers checked on 2026-09-19:
+- Groq: 8k tokens/min, below one request's size.
+- Mistral: free API tier withdrawn.
+- Cerebras: $5 trial that needs a card.
+- Gemini API free tier: no card; per-project request limits.
+
+**Decision.**
+- The agents call a Gemini Flash model through Google's OpenAI-compatible endpoint with `langchain-openai` (approved for this change), at temperature 0. A client-side rate limiter holds calls under the key's requests-per-minute limit.
+- Structured output uses function calling on every provider.
+- `llm.provider: bedrock` in `configs/agents.yaml` restores ChatBedrockConverse unchanged.
+- Free-tier calls are priced at $0; token counts are still reported.
+- The evaluation is resumable. Finished runs are appended to the details file as they complete. A spent daily quota stops the run cleanly, and rerunning the same command continues. Metrics are written only once every (incident, run) is done.
+
+**Alternatives.** Upgrade AWS to a paid plan (declined). Local models via Ollama (declined: the owner wants hosted calls). Cerebras (needs a card). Test RUNS=1 to finish sooner (drops mean ± std).
+
+**Consequences.**
+- The full evaluation takes several days of daily quota.
+- Latency includes rate-limiter waiting, so it measures throughput under the free tier, not model speed.
+- Google may use free-tier prompts to improve its products. All data here is synthetic.
+- Results are specific to the configured Gemini model, which every metrics file records.

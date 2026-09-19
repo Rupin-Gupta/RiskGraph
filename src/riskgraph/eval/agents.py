@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import json
 import statistics
+import threading
 import time
 from collections import Counter
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -24,7 +26,7 @@ from dotenv import load_dotenv
 
 from riskgraph import cli
 from riskgraph.agents.graph import case_dict, resume
-from riskgraph.agents.llm import Budget, config, model_id
+from riskgraph.agents.llm import Budget, config, model_id, price
 from riskgraph.agents.runner import INCIDENTS, Runtime, ensure_run, flush_traces, run_config
 from riskgraph.agents.tools import approval_token
 from riskgraph.eval.checker import citations_valid, evidence_confirmed
@@ -32,11 +34,6 @@ from riskgraph.incidents.generate import load_split
 
 TYPES = ("position_jump", "market_shock", "bad_data", "control")
 NO_ESCALATION = ("control", "bad_data")  # false-escalation denominator (SPEC §11.2)
-
-
-def price() -> dict[str, float]:
-    p: dict[str, float] = config()["prices_per_mtok"][model_id()]
-    return p
 
 
 def cost(usage: dict[str, int]) -> float:
@@ -189,15 +186,31 @@ def estimate(variant: str, split: str, n: int, runs: int) -> dict[str, Any]:
     }
 
 
+QUOTA = ("429", "RESOURCE_EXHAUSTED", "quota", "rate limit")  # the free tier's daily cap
+
+
+def load_done(path: Path) -> dict[tuple[str, int], dict[str, Any]]:
+    """Finished (incident, run) records from an earlier, interrupted evaluation."""
+    done: dict[tuple[str, int], dict[str, Any]] = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            r = json.loads(line)
+            if r["status"] != "error":
+                done[(r["incident_id"], r["run"])] = r
+    return done
+
+
 def main(
     split: str = typer.Option(..., help="dev or test."),
     variant: str = typer.Option("multi", help="multi or baseline."),
     runs: int = typer.Option(1, help="Repeated runs per incident (mean and std)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Estimate tokens and cost only."),
-    workers: int = typer.Option(4, help="Incidents investigated in parallel."),
-    limit: int = typer.Option(0, help="First N incidents only (smoke test; writes no metrics)."),
+    workers: int = typer.Option(2, help="Incidents investigated in parallel."),
+    limit: int = typer.Option(0, help="First N incidents only (smoke test; writes nothing)."),
     seed: int = typer.Option(42, help="Seed for rerunning an incident's risk run if needed."),
 ) -> None:
+    """Resumable: finished runs are appended to the details file as they complete, and a rerun
+    of the same command skips them. Metrics are written once every (incident, run) is done."""
     load_dotenv()
     cfg = config()
     split_doc = load_split(INCIDENTS, cfg["eval"]["test_split_sha256"])  # before every run
@@ -205,49 +218,63 @@ def main(
     if dry_run:
         typer.echo(json.dumps(estimate(variant, split, len(ids), runs), indent=2))
         return
+    out = cli.METRICS / f"agents_{variant}_{split}"
+    details = out.with_suffix(".details.jsonl")
+    done = {} if limit else load_done(details)
+    jobs = [(i, r) for r in range(runs) for i in ids if (i, r) not in done]
+    typer.echo(f"{len(done)} runs already done, {len(jobs)} to go")
     truth = {i: json.loads((INCIDENTS / i / "ground_truth.json").read_text()) for i in ids}
     cases = {i: case_dict(INCIDENTS / i) for i in ids}
+    stop, lock = threading.Event(), threading.Lock()
     with Runtime("memory") as rt:
         for c in cases.values():
             ensure_run(c, rt.engine, seed)
         graph = rt.graph(variant)
-        jobs = [(i, r) for r in range(runs) for i in ids]
 
-        def job(j: tuple[str, int]) -> dict[str, Any]:
+        def job(j: tuple[str, int]) -> None:
+            if stop.is_set():
+                return
             rec = run_one(rt, graph, variant, split, cases[j[0]], j[1])
+            if rec["status"] == "error" and any(q in rec["reason"] for q in QUOTA):
+                stop.set()  # daily quota spent: keep the run for tomorrow
+                typer.echo(f"  quota exhausted at {j[0]} r{j[1]}: {rec['reason'][:120]}")
+                return
             rec["score"] = score(rec, truth[j[0]], rt, cases[j[0]])
             ok = "ok " if rec["score"]["root_cause_correct"] else "BAD"
             pred = rec["score"]["predicted_root_cause"]
             typer.echo(f"  {ok} {j[0]} r{j[1]} {rec['status']} {pred}")
-            return rec
+            rec.pop("calls")
+            with lock:
+                if rec["status"] != "error":
+                    done[j] = rec
+                if not limit:
+                    with details.open("a") as f:
+                        f.write(json.dumps(rec, default=str) + "\n")
 
         with ThreadPoolExecutor(workers) as ex:
-            recs = list(ex.map(job, jobs))
+            list(ex.map(job, jobs))
     flush_traces()
+    if limit:
+        typer.echo("--limit set: nothing written")
+        return
+    recs = sorted(done.values(), key=lambda r: (r["incident_id"], r["run"]))
+    with details.open("w") as f:  # compact: one finished record per (incident, run)
+        f.writelines(json.dumps(r, default=str) + "\n" for r in recs)
+    missing = runs * len(ids) - len(recs)
+    if missing:
+        why = "daily quota spent" if stop.is_set() else "runs crashed (see above)"
+        typer.echo(f"{len(recs)}/{runs * len(ids)} runs done; {why}. Rerun the same command.")
+        raise typer.Exit(0 if stop.is_set() else 1)
     doc: dict[str, Any] = {"variant": variant, "split": split, "runs": runs, "incidents": len(ids)}
     doc |= {"model": model_id(), "test_split_sha256": split_doc["test_sha256"]}
     doc |= aggregate(recs, runs)
     doc["total_cost_usd"] = sum(r["cost_usd"] for r in recs)
-    m = doc["metrics"]
-    typer.echo(
-        f"{variant}/{split}: root cause {m['root_cause_accuracy']['mean']:.3f} "
-        f"± {m['root_cause_accuracy']['std']:.3f}, cost ${doc['total_cost_usd']:.4f}"
-    )
-    if limit:
-        typer.echo("--limit set: metrics not written")
-        return
-    out = cli.METRICS / f"agents_{variant}_{split}"
+    m = doc["metrics"]["root_cause_accuracy"]
+    typer.echo(f"{variant}/{split}: root cause {m['mean']:.3f} ± {m['std']:.3f}")
     cli.write_json(out.with_suffix(".json"), doc)
     run_cfg = {"split": split, "variant": variant, "runs": runs, "workers": workers, "seed": seed}
     cli.write_json(out.with_suffix(".config.json"), run_cfg | {"agents": cfg})
-    with out.with_suffix(".details.jsonl").open("w") as f:
-        for r in sorted(recs, key=lambda r: (r["incident_id"], r["run"])):
-            f.write(json.dumps({k: v for k, v in r.items() if k != "calls"}, default=str) + "\n")
     typer.echo(f"-> {out}.json")
-    crashed = sum(r["status"] == "error" for r in recs)
-    if crashed:
-        typer.echo(f"{crashed} runs crashed; see the details file", err=True)
-        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ make eval-agents SPLIT=dev  VARIANT=multi    RUNS=1
 make eval-agents SPLIT=test VARIANT=baseline RUNS=3 DRY_RUN=1   # token and cost estimate only
 ```
 
-Each incident runs in a fresh thread. The run is auto-approved at the human-approval interrupt, so the evaluation measures the report, not the dispatch. An in-memory checkpointer is used; the CLI uses Postgres. Langfuse traces are tagged `incident_id`, `variant`, and `split`. `DRY_RUN` multiplies the mean tokens per incident from `agents_<variant>_dev.json` by the price in `configs/agents.yaml`. Before any dev run it uses the 60k-token budget ceiling, an upper bound. Outputs:
+The run is resumable: finished (incident, run) records are appended to the details file as they complete. When the free tier's daily quota runs out, the run stops, and rerunning the same command continues. Metrics are written once every run is done. Each incident runs in a fresh thread. The run is auto-approved at the human-approval interrupt, so the evaluation measures the report, not the dispatch. An in-memory checkpointer is used; the CLI uses Postgres. Langfuse traces are tagged `incident_id`, `variant`, and `split`. `DRY_RUN` multiplies the mean tokens per incident from `agents_<variant>_dev.json` by the price in `configs/agents.yaml`. Before any dev run it uses the 60k-token budget ceiling, an upper bound. Outputs:
 - `reports/metrics/agents_<variant>_<split>.json`: metrics as mean, std, and per-run values; per-type rows; the confusion counts; the total cost.
 - `.config.json`: the resolved configuration.
 - `.details.jsonl`: one record per incident and run (report, status, usage, latency, score).
@@ -65,7 +65,7 @@ All scoring is deterministic, from `IncidentReport` fields against ground truth 
 | Citation recall ("relevance") | Per incident, the share of expected policy sections that were cited, averaged |
 | Citation precision | Per incident, the share of cited sections that are expected, averaged (0 if nothing is cited) |
 | Needs-human rate | Share of runs stopped by the token or tool-call budget, or by two structured-output failures |
-| Tokens, cost, latency | Mean per incident. Tokens are the model's reported usage, summed over every LLM call in the run. Cost = tokens × the on-demand price in `configs/agents.yaml`. Latency = wall time from invoke to the approval pause |
+| Tokens, cost, latency | Mean per incident. Tokens are the model's reported usage, summed over every LLM call in the run. Cost = tokens × the on-demand price in `configs/agents.yaml`. Latency = wall time from invoke to the approval pause; on the free tier it includes rate-limiter waiting (ADR-012) |
 
 **Independent numeric checker (`eval/checker.py`).** It is separate from the critic, so the system does not grade itself. For each evidence item, it looks up the logged call by `result_id` and requires that call to belong to this run's incident and thread. It then **re-executes** the tool from the engine's stored outputs and accepts the value only if it equals a number in the fresh result: either within a relative 1e-6, or exactly that number rounded to 3 or more significant figures, after applying the stated unit (`%`, `k`, `mn`, `bn`).
 

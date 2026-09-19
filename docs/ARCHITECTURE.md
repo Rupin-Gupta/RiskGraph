@@ -85,7 +85,7 @@ Every successful call is logged to `tool_results` under `result_id = "R" + sha25
 
 ### Runtime (`agents/runner.py`)
 
-- The model is `ChatBedrockConverse` at temperature 0 (model ID from `BEDROCK_MODEL_ID` or `configs/agents.yaml`).
+- The model runs at temperature 0. By default it is a Gemini Flash model on the Gemini API free tier, called through the OpenAI-compatible endpoint with a client-side rate limiter (ADR-012). Setting `llm.provider: bedrock` switches to `ChatBedrockConverse` (ADR-009).
 - The CLI uses `PostgresSaver`, so a paused incident survives a process restart. `riskgraph investigate --incident INC-001 --variant multi` pauses; `riskgraph approve --thread <id> --decision approve|reject [--edits note.md]` resumes it. The evaluation uses an in-memory checkpointer.
 - Langfuse tracing turns on when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Traces are tagged `incident_id:`, `variant:`, and `split:`, with the thread ID as the session.
 

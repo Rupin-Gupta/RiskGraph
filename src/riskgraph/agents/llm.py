@@ -1,4 +1,4 @@
-"""LLM plumbing shared by the multi-agent graph and the baseline: the Bedrock model, the
+"""LLM plumbing shared by the multi-agent graph and the baseline: the chat model, the
 per-incident budget, a ReAct tool loop, structured output, and untrusted-data wrapping.
 """
 
@@ -15,7 +15,7 @@ from typing import Any, TypeVar, cast
 import yaml
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from riskgraph.agents.tools import TOOLS, Toolbox
 
@@ -36,20 +36,50 @@ def config() -> dict[str, Any]:
 
 
 def model_id() -> str:
-    return os.environ.get("BEDROCK_MODEL_ID") or str(config()["llm"]["model_id"])
+    c = config()
+    if c["llm"]["provider"] == "bedrock":
+        return os.environ.get("BEDROCK_MODEL_ID") or str(c["bedrock"]["model_id"])
+    return os.environ.get("LLM_MODEL_ID") or str(c["llm"]["model_id"])
 
 
 def make_llm() -> BaseChatModel:
-    """ChatBedrockConverse at temperature 0 (SPEC §10.1)."""
-    from langchain_aws import ChatBedrockConverse
-
+    """The chat model at temperature 0: an OpenAI-compatible endpoint (ADR-012), rate-limited
+    client-side to the free tier, or ChatBedrockConverse (SPEC §10.1, ADR-009)."""
     c = config()["llm"]
-    return ChatBedrockConverse(
+    if c["provider"] == "bedrock":
+        from langchain_aws import ChatBedrockConverse
+
+        return ChatBedrockConverse(
+            model=model_id(),
+            region_name=os.environ.get("AWS_REGION") or config()["bedrock"]["region"],
+            temperature=c["temperature"],
+            max_tokens=c["max_output_tokens"],
+        )
+    from langchain_core.rate_limiters import InMemoryRateLimiter
+    from langchain_openai import ChatOpenAI
+
+    key = os.environ.get(c["api_key_env"])
+    if not key:
+        raise RuntimeError(f"{c['api_key_env']} is not set (see .env.example)")
+    rps = float(c["requests_per_minute"]) / 60
+    return ChatOpenAI(
         model=model_id(),
-        region_name=os.environ.get("AWS_REGION") or c["region"],
+        base_url=c["base_url"],
+        api_key=SecretStr(key),
         temperature=c["temperature"],
-        max_tokens=c["max_output_tokens"],
+        max_completion_tokens=c["max_output_tokens"],
+        rate_limiter=InMemoryRateLimiter(requests_per_second=rps, max_bucket_size=1),
+        max_retries=6,  # 429s back off and retry; a spent daily quota still fails
     )
+
+
+def price() -> dict[str, float]:
+    """USD per 1M input and output tokens for the configured model."""
+    table = config()["prices_per_mtok"]
+    if model_id() not in table:
+        raise KeyError(f"add a price for {model_id()} to prices_per_mtok in {CONFIG}")
+    p: dict[str, float] = table[model_id()]
+    return p
 
 
 class BudgetExceeded(Exception):
@@ -146,7 +176,7 @@ def react(
 
 def ask(llm: BaseChatModel, schema: type[M], msgs: Sequence[BaseMessage], budget: Budget) -> M:
     """Structured output, with one retry that shows the validation error."""
-    runnable = llm.with_structured_output(schema, include_raw=True)
+    runnable = llm.with_structured_output(schema, include_raw=True, method="function_calling")
     history = list(msgs)
     for attempt in range(2):
         budget.check()

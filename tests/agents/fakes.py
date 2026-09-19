@@ -144,7 +144,7 @@ class FakeLLM:
 
         return Bound()
 
-    def with_structured_output(self, schema: Any, include_raw: bool = False) -> Any:
+    def with_structured_output(self, schema: Any, include_raw: bool = False, **kw: Any) -> Any:
         llm = self
 
         class Structured:

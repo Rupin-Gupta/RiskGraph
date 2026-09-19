@@ -328,7 +328,7 @@ def investigate(
     import uuid
 
     from riskgraph.agents.graph import case_dict
-    from riskgraph.agents.llm import Budget, config, model_id
+    from riskgraph.agents.llm import Budget, price
     from riskgraph.agents.runner import INCIDENTS, Runtime, ensure_run, flush_traces, run_config
 
     load_dotenv()
@@ -344,8 +344,8 @@ def investigate(
     flush_traces()
     _report_summary(snap.values)
     u = budget.usage()
-    price = config()["prices_per_mtok"].get(model_id(), {"input": 0.0, "output": 0.0})
-    cost = (u["input_tokens"] * price["input"] + u["output_tokens"] * price["output"]) / 1e6
+    p = price()
+    cost = (u["input_tokens"] * p["input"] + u["output_tokens"] * p["output"]) / 1e6
     typer.echo(f"usage: {u} cost ${cost:.4f}")
     if "human_approval" in snap.next:
         typer.echo(f"\nPaused for approval. Thread: {thread}")
