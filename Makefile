@@ -1,4 +1,5 @@
-.PHONY: setup lint test data results up down book db-migrate risk-run backtest eval-dq
+.PHONY: setup lint test data results up down book db-migrate risk-run backtest eval-dq \
+	incidents rag-index eval-agents
 
 # Virtual uv project (ADR-002): the riskgraph package is imported from src/.
 export PYTHONPATH := src
@@ -38,6 +39,18 @@ backtest:
 
 eval-dq:
 	uv run python -m riskgraph.eval.dq --seed 42
+
+incidents: db-migrate
+	uv run python -m riskgraph.cli incidents generate --n 100 --seed 42
+
+rag-index:
+	uv run python -m riskgraph.cli rag index
+
+# make eval-agents SPLIT=dev|test VARIANT=baseline|multi RUNS=n [DRY_RUN=1]
+eval-agents: db-migrate
+	$(if $(SPLIT),,$(error usage: make eval-agents SPLIT=dev|test VARIANT=baseline|multi RUNS=n [DRY_RUN=1]))
+	uv run python -m riskgraph.eval.agents --split $(SPLIT) --variant $(or $(VARIANT),multi) \
+		--runs $(or $(RUNS),1) $(if $(DRY_RUN),--dry-run)
 
 up:
 	docker compose up -d --wait

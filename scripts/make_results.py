@@ -100,7 +100,64 @@ def render_dq(doc: dict[str, Any]) -> list[str]:
     return lines
 
 
+AGENT_ROWS = [  # metric key, label, format
+    ("root_cause_accuracy", "Root-cause accuracy", "pct"),
+    ("action_accuracy", "Action accuracy", "pct"),
+    ("false_escalation_rate", "False-escalation rate (control + bad data)", "pct"),
+    ("numeric_faithfulness", "Numeric faithfulness (independent checker)", "pct"),
+    ("citation_validity", "Citation validity", "pct"),
+    ("citation_recall", "Citation recall (expected sections cited)", "pct"),
+    ("needs_human_rate", "Stopped as needs_human", "pct"),
+    ("input_tokens", "Input tokens per incident", "int"),
+    ("output_tokens", "Output tokens per incident", "int"),
+    ("cost_usd", "Cost per incident (USD)", "usd"),
+    ("latency_s", "Latency per incident (s)", "sec"),
+]
+
+
+def fmt(m: dict[str, Any], kind: str) -> str:
+    """mean ± std over runs."""
+    if m["mean"] is None:
+        return "n/a"
+    mean, std = m["mean"], m["std"]
+    if kind == "pct":
+        return f"{mean:.1%} ± {std:.1%}"
+    if kind == "int":
+        return f"{mean:,.0f} ± {std:,.0f}"
+    if kind == "usd":
+        return f"{mean:.4f} ± {std:.4f}"
+    return f"{mean:.1f} ± {std:.1f}"
+
+
+def render_agents(docs: list[dict[str, Any]]) -> list[str]:
+    """Variants side by side: mean ± std over runs, then root-cause accuracy per type."""
+    docs = sorted(docs, key=lambda d: d["variant"])
+    names = [d["variant"] for d in docs]
+    d0 = docs[0]
+    lines = [
+        f"{d0['incidents']} held-out incidents, model `{d0['model']}`, "
+        + ", ".join(f"{d['variant']} {d['runs']} run(s)" for d in docs)
+        + ". Mean ± std over runs. Definitions in docs/EVALUATION.md.",
+        "",
+        "| Metric | " + " | ".join(names) + " |",
+        "|---|" + "---|" * len(docs),
+    ]
+    for key, label, kind in AGENT_ROWS:
+        cells = [fmt(d["metrics"][key], kind) for d in docs]
+        lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    lines.append(
+        "| Total cost (USD) | " + " | ".join(f"{d['total_cost_usd']:.2f}" for d in docs) + " |"
+    )
+    lines += ["", "| Root-cause accuracy by type | n | " + " | ".join(names) + " |"]
+    lines.append("|---|---|" + "---|" * len(docs))
+    for t, row in d0["per_type"].items():
+        cells = [fmt(d["per_type"][t]["root_cause_accuracy"], "pct") for d in docs]
+        lines.append(f"| {t} | {row['n']} | " + " | ".join(cells) + " |")
+    return lines
+
+
 RENDERERS = {"backtest.json": render_backtest, "dq.json": render_dq}
+COMBINED = {"agents_*_test.json": render_agents}  # one table across files
 
 
 def render(metrics_dir: Path = METRICS) -> str:
@@ -114,6 +171,10 @@ def render(metrics_dir: Path = METRICS) -> str:
         files = sorted(metrics_dir.glob(pattern))
         if not files:
             lines.append("TBD")
+        elif pattern in COMBINED:
+            lines += ["Source: " + ", ".join(f"`{f.name}`" for f in files), ""]
+            lines += COMBINED[pattern]([json.loads(f.read_text()) for f in files])
+            continue
         for f in files:
             doc = json.loads(f.read_text())
             lines += [f"Source: `{f.name}`", ""]
